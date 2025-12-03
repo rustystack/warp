@@ -321,10 +321,10 @@ impl DistributedUploader {
         let mut completed_chunks = Vec::new();
 
         // Start new chunk uploads if we have capacity
-        while session.active_chunks.len() < self.config.max_concurrent_chunks
-            && !session.pending_chunks.is_empty()
-        {
-            let chunk_id = session.pending_chunks.pop_front().unwrap();
+        while session.active_chunks.len() < self.config.max_concurrent_chunks {
+            let Some(chunk_id) = session.pending_chunks.pop_front() else {
+                break;
+            };
 
             // Get chunk metadata from session (populated in start())
             let meta = session.chunk_metadata.get(&chunk_id).copied().unwrap_or(ChunkMeta {
@@ -462,7 +462,7 @@ impl DistributedUploader {
 fn current_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(std::time::Duration::ZERO)
         .as_millis() as u64
 }
 

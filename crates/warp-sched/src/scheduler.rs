@@ -356,7 +356,7 @@ impl CpuChunkScheduler {
     fn create_batch(&self, assignments: Vec<Assignment>) -> AssignmentBatch {
         let timestamp_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
 
         AssignmentBatch {

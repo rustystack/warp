@@ -181,7 +181,7 @@ impl ChunkState {
     pub fn update_timestamp(&mut self) {
         self.last_update_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u32;
     }
 
@@ -361,7 +361,7 @@ impl AssignmentBatch {
     pub fn new(assignments: Vec<Assignment>, generation: u64) -> Self {
         let timestamp_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
         Self {
             assignments,
@@ -465,7 +465,7 @@ impl ScheduleRequest {
         if let Some(deadline) = self.deadline_ms {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_millis() as u64;
             now > deadline
         } else {
@@ -478,7 +478,7 @@ impl ScheduleRequest {
         self.deadline_ms.map(|deadline| {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_millis() as u64;
             deadline.saturating_sub(now)
         })

@@ -705,7 +705,7 @@ impl PrepositionManager {
         // Track predictions
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
 
         for &chunk_id in &predicted_chunks {
@@ -731,7 +731,7 @@ impl PrepositionManager {
     pub fn update_accuracy_metrics(&mut self) {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
 
         let horizon = self.config.prediction_horizon_ms;

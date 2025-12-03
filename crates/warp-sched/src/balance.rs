@@ -112,7 +112,7 @@ impl RebalancePlan {
     pub fn new(operations: Vec<RebalanceOp>, generation: u64) -> Self {
         let timestamp_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
         Self {
             operations,

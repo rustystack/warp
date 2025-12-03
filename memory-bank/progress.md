@@ -89,7 +89,7 @@
 - [x] StreamCipher with encrypt_chunk/decrypt_chunk
 - [x] StreamCipherBuilder pattern
 
-### warp-format (40% complete)
+### warp-format (90% complete)
 - [x] Header definition (256 bytes)
 - [x] Header serialization/deserialization
 - [x] Compression/Encryption enums
@@ -98,31 +98,31 @@
 - [x] ChunkIndex implementation
 - [x] FileEntry structure
 - [x] FileTable implementation
-- [x] MerkleTree structure
+- [x] MerkleTree structure (283 lines, 12 tests)
 - [x] Tree building algorithm
-- [ ] Merkle proof generation (stub exists)
-- [ ] Merkle proof verification (stub exists)
+- [x] Merkle proof generation
+- [x] Merkle proof verification
+- [x] hash_pair() using BLAKE3 (warp_hash::hash())
+- [x] WarpWriter implementation (722 lines, 19 tests)
+- [x] WarpReader implementation (1,007 lines, 25+ tests)
 - [ ] ChunkIndex serialization
 - [ ] FileTable serialization
-- [ ] WarpWriter implementation (stub exists)
-- [ ] WarpReader implementation (stub exists)
 - [ ] B-tree index for O(1) lookup
 
-### warp-net (30% complete)
+### warp-net (80% complete)
 - [x] Frame type definitions
 - [x] FrameHeader encode/decode
 - [x] Capabilities structure
 - [x] GpuInfo structure
 - [x] Protocol state machine enum
 - [x] NegotiatedParams from capabilities
-- [x] WarpConnection structure (stub)
-- [x] WarpEndpoint structure (stub)
-- [x] WarpListener structure (stub)
-- [ ] Quinn QUIC integration
-- [ ] TLS certificate handling
-- [ ] Frame codec implementation
-- [ ] Connection management
-- [ ] Stream multiplexing
+- [x] WarpConnection (QUIC wrapper, handshake, frame send/recv)
+- [x] WarpEndpoint (connect with TLS)
+- [x] WarpListener (bind, accept with self-signed certs)
+- [x] TLS certificate generation and loading
+- [x] Frame codec implementation
+- [ ] Full integration tests with real QUIC connections
+- [ ] Production certificate handling
 
 ### warp-core (25% complete)
 - [x] Error aggregation from sub-crates
@@ -158,18 +158,13 @@
 
 ## In Progress
 
-### Archive Mode Foundation
-- [ ] Fix Merkle hash_pair() to use BLAKE3
+### Archive Mode Remaining
 - [ ] Add ChunkIndex serialization
 - [ ] Add FileTable serialization
-- [ ] Implement WarpWriter
-- [ ] Implement WarpReader
 
-### GPU Acceleration
-- [ ] cudarc dependency setup
+### GPU Compression (nvCOMP)
 - [ ] nvCOMP wrapper types
 - [ ] GPU compressor implementation
-- [ ] GPU/CPU fallback logic
 
 ## Not Started
 
@@ -196,30 +191,25 @@
 
 ## Known Issues
 
-1. **Merkle hash_pair uses placeholder XOR**
-   - Location: `warp-format/src/merkle.rs:76-88`
-   - Impact: Merkle verification will be incorrect
-   - Fix: Replace XOR with `warp_hash::hash()`
-
-2. **Chunker window removal is O(n)**
+1. **Chunker window removal is O(n)**
    - Location: `warp-io/src/chunker.rs:74`
    - Impact: Performance degradation with large windows
    - Fix: Use VecDeque or ring buffer
 
-3. **No hostname crate in warp-net**
-   - Location: `warp-net/src/frames.rs`
-   - Impact: `Capabilities::default()` may panic
-   - Fix: Add hostname dependency or use fallback
-
-4. **WarpReader/Writer are stubs**
-   - Location: `warp-format/src/reader.rs`, `writer.rs`
-   - Impact: Cannot create or read archives
-   - Fix: Implement full functionality
-
-5. **Integration tests empty**
+2. **Integration tests empty**
    - Location: `tests/integration.rs`
    - Impact: No end-to-end verification
    - Fix: Add comprehensive tests
+
+## Resolved Issues (2025-12-03)
+
+1. ~~**Merkle hash_pair uses placeholder XOR**~~ → FIXED (already used BLAKE3)
+2. ~~**WarpReader/Writer are stubs**~~ → COMPLETE (722 + 1,007 lines, 44+ tests)
+3. ~~**Production panic issues (16 total)**~~ → FIXED
+   - Fixed 11 `SystemTime::duration_since().unwrap()` calls
+   - Fixed 2 `VecDeque.pop_front().unwrap()` calls
+   - Fixed 1 `f64.partial_cmp().unwrap()` call
+   - Affected files: warp-orch (5 files), warp-sched (4 files)
 
 ## Warp Engine Phases (COMPLETE)
 

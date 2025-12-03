@@ -240,14 +240,16 @@ impl PatternDetector {
     pub fn clear_old_records(&mut self, max_age_ms: u64) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
 
         let cutoff = now.saturating_sub(max_age_ms);
 
         while let Some(record) = self.records.front() {
             if record.timestamp_ms < cutoff {
-                let old_record = self.records.pop_front().unwrap();
+                let Some(old_record) = self.records.pop_front() else {
+                    break;
+                };
                 if let Some(count) = self.access_counts.get_mut(&old_record.chunk_id) {
                     *count = count.saturating_sub(1);
                     if *count == 0 {
@@ -585,7 +587,7 @@ impl Predictor {
             .map(|(&id, &score)| (id, score))
             .collect();
 
-        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         candidates.into_iter().take(count).map(|(id, _)| id).collect()
     }
 }
