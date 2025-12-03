@@ -8,6 +8,7 @@ use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use warp_crypto::kdf::{derive_key, generate_salt};
+use warp_format::merkle::MerkleTree;
 use warp_format::{Compression, EncryptionKey, WarpReader, WarpWriter, WarpWriterConfig};
 use warp_net::{Frame, WarpEndpoint};
 
@@ -346,11 +347,17 @@ async fn send_remote(
         .progress_chars("#>-"),
     );
 
+    // Collect chunk hashes for Merkle tree verification
+    let mut chunk_hashes: Vec<[u8; 32]> = Vec::with_capacity(num_chunks);
+
     // Send chunks
     for chunk_id in 0..num_chunks {
         let start = chunk_id * CHUNK_SIZE;
         let end = std::cmp::min(start + CHUNK_SIZE, archive_data.len());
         let chunk_data = &archive_data[start..end];
+
+        // Hash chunk for Merkle tree
+        chunk_hashes.push(warp_hash::hash(chunk_data));
 
         conn.send_chunk(chunk_id as u32, chunk_data)
             .await
@@ -387,8 +394,11 @@ async fn send_remote(
         .await
         .context("Failed to send DONE")?;
 
-    // Send VERIFY frame with merkle root (placeholder for now)
-    let merkle_root = [0u8; 32]; // TODO: Calculate actual merkle root
+    // Build Merkle tree from chunk hashes and get root
+    let merkle_tree = MerkleTree::from_leaves(chunk_hashes);
+    let merkle_root = merkle_tree.root();
+
+    // Send VERIFY frame with merkle root
     conn.send_frame(Frame::Verify { merkle_root })
         .await
         .context("Failed to send VERIFY")?;

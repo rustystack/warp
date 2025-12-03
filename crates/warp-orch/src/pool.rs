@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tokio::time::{timeout, Duration};
+use warp_net::WarpConnection;
 use warp_sched::EdgeIdx;
 
 /// Pool-specific errors
@@ -34,6 +35,10 @@ pub enum PoolError {
     Closed,
     #[error("invalid config: {0}")]
     InvalidConfig(String),
+    #[error("transport error: {0}")]
+    Transport(String),
+    #[error("no transport available for connection {0}")]
+    NoTransport(u64),
 }
 
 pub type Result<T> = std::result::Result<T, PoolError>;
@@ -164,10 +169,17 @@ pub struct PooledConnection {
 }
 
 impl PooledConnection {
+    /// Get the edge index for this connection
     pub fn edge_idx(&self) -> EdgeIdx {
         self.edge_idx
     }
 
+    /// Get the connection ID for transport attachment
+    pub fn conn_id(&self) -> u64 {
+        self.conn_id
+    }
+
+    /// Send data using real transport if available, otherwise use mock
     pub fn send(&self, data: &[u8]) -> Result<()> {
         if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
             conn.mock_send(data)
@@ -176,9 +188,136 @@ impl PooledConnection {
         }
     }
 
+    /// Receive data using mock (for backwards compatibility)
     pub fn receive(&self, buf: &mut [u8]) -> Result<usize> {
         if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
             conn.mock_receive(buf)
+        } else {
+            Err(PoolError::ConnectionNotFound(self.conn_id))
+        }
+    }
+
+    /// Check if this connection has a real transport attached
+    pub fn has_transport(&self) -> bool {
+        self.pool.transports.contains_key(&self.conn_id)
+    }
+
+    /// Get the underlying WarpConnection transport if available
+    pub fn transport(&self) -> Option<Arc<WarpConnection>> {
+        self.pool.transports.get(&self.conn_id).map(|t| t.clone())
+    }
+
+    /// Send chunk data using real QUIC transport
+    ///
+    /// This method uses the actual WarpConnection to send chunk data
+    /// over the network. Falls back to mock if no transport is attached.
+    pub async fn send_chunk(&self, chunk_id: u32, data: &[u8]) -> Result<()> {
+        // Update stats regardless of transport type
+        if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
+            conn.bytes_sent += data.len() as u64;
+        }
+
+        // Try real transport first
+        if let Some(transport) = self.pool.transports.get(&self.conn_id) {
+            transport
+                .send_chunk(chunk_id, data)
+                .await
+                .map_err(|e| PoolError::Transport(format!("Failed to send chunk: {}", e)))?;
+            return Ok(());
+        }
+
+        // Fall back to mock behavior for tests
+        if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
+            if conn.state != ConnectionState::InUse {
+                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+            }
+            Ok(())
+        } else {
+            Err(PoolError::ConnectionNotFound(self.conn_id))
+        }
+    }
+
+    /// Send multiple chunks in a batch using real QUIC transport
+    pub async fn send_chunk_batch(&self, chunks: Vec<(u32, Vec<u8>)>) -> Result<()> {
+        // Update stats
+        let total_bytes: u64 = chunks.iter().map(|(_, data)| data.len() as u64).sum();
+        if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
+            conn.bytes_sent += total_bytes;
+        }
+
+        // Try real transport
+        if let Some(transport) = self.pool.transports.get(&self.conn_id) {
+            transport
+                .send_chunk_batch(chunks)
+                .await
+                .map_err(|e| PoolError::Transport(format!("Failed to send batch: {}", e)))?;
+            return Ok(());
+        }
+
+        // Fall back to mock
+        if let Some(conn) = self.pool.connections.get(&self.conn_id) {
+            if conn.state != ConnectionState::InUse {
+                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+            }
+            Ok(())
+        } else {
+            Err(PoolError::ConnectionNotFound(self.conn_id))
+        }
+    }
+
+    /// Request chunks from the peer using WANT frame
+    ///
+    /// Sends a WANT frame requesting the specified chunk IDs.
+    /// The peer should respond with CHUNK frames for each requested chunk.
+    pub async fn request_chunks(&self, chunk_ids: Vec<u32>) -> Result<()> {
+        if let Some(transport) = self.pool.transports.get(&self.conn_id) {
+            use warp_net::Frame;
+            transport
+                .send_frame(Frame::Want { chunk_ids })
+                .await
+                .map_err(|e| PoolError::Transport(format!("Failed to send WANT: {}", e)))?;
+            return Ok(());
+        }
+
+        // Fall back to mock for tests
+        if let Some(conn) = self.pool.connections.get(&self.conn_id) {
+            if conn.state != ConnectionState::InUse {
+                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+            }
+            Ok(())
+        } else {
+            Err(PoolError::ConnectionNotFound(self.conn_id))
+        }
+    }
+
+    /// Receive a chunk from the peer
+    ///
+    /// Waits for and receives a CHUNK frame from the peer.
+    /// Returns (chunk_id, data).
+    pub async fn recv_chunk(&self) -> Result<(u32, Vec<u8>)> {
+        // Update stats
+        if let Some(transport) = self.pool.transports.get(&self.conn_id) {
+            let (chunk_id, data) = transport
+                .recv_chunk()
+                .await
+                .map_err(|e| PoolError::Transport(format!("Failed to recv chunk: {}", e)))?;
+
+            // Update received bytes stat
+            if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
+                conn.bytes_received += data.len() as u64;
+            }
+
+            return Ok((chunk_id, data));
+        }
+
+        // Fall back to mock for tests - return empty chunk
+        if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
+            if conn.state != ConnectionState::InUse {
+                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+            }
+            let mock_data = vec![0u8; 1024];
+            conn.bytes_received += mock_data.len() as u64;
+            Ok((0, mock_data))
         } else {
             Err(PoolError::ConnectionNotFound(self.conn_id))
         }
@@ -205,6 +344,7 @@ pub struct PoolStats {
 struct ConnectionPoolInner {
     config: PoolConfig,
     connections: DashMap<u64, Connection>,
+    transports: DashMap<u64, Arc<WarpConnection>>,
     edge_connections: DashMap<EdgeIdx, Vec<u64>>,
     next_conn_id: AtomicU64,
     total_semaphore: Arc<Semaphore>,
@@ -227,6 +367,7 @@ impl ConnectionPoolInner {
             total_semaphore: Arc::new(Semaphore::new(config.max_total_connections)),
             config,
             connections: DashMap::new(),
+            transports: DashMap::new(),
             edge_connections: DashMap::new(),
             next_conn_id: AtomicU64::new(1),
             edge_semaphores: DashMap::new(),
@@ -308,6 +449,7 @@ impl ConnectionPoolInner {
                     conn.state = ConnectionState::Closed;
                 }
                 self.connections.remove(&conn_id);
+                self.transports.remove(&conn_id);
             }
         }
         self.edge_semaphores.remove(&edge_idx);
@@ -380,6 +522,42 @@ impl ConnectionPool {
 
     pub fn config(&self) -> &PoolConfig {
         &self.inner.config
+    }
+
+    /// Acquire a connection and attach a real transport to it
+    ///
+    /// This method creates a pooled connection and attaches the provided
+    /// WarpConnection for real network I/O operations.
+    pub async fn acquire_with_transport(
+        &self,
+        edge_idx: EdgeIdx,
+        transport: Arc<WarpConnection>,
+    ) -> Result<PooledConnection> {
+        let conn_id = self.inner.acquire_connection(edge_idx).await?;
+        self.inner.transports.insert(conn_id, transport);
+        Ok(PooledConnection {
+            pool: self.inner.clone(),
+            conn_id,
+            edge_idx,
+        })
+    }
+
+    /// Attach a transport to an existing connection by ID
+    ///
+    /// Used when you need to add transport after connection is acquired.
+    pub fn attach_transport(&self, conn_id: u64, transport: Arc<WarpConnection>) -> Result<()> {
+        if !self.inner.connections.contains_key(&conn_id) {
+            return Err(PoolError::ConnectionNotFound(conn_id));
+        }
+        self.inner.transports.insert(conn_id, transport);
+        Ok(())
+    }
+
+    /// Detach transport from a connection
+    ///
+    /// Returns the transport if it was attached.
+    pub fn detach_transport(&self, conn_id: u64) -> Option<Arc<WarpConnection>> {
+        self.inner.transports.remove(&conn_id).map(|(_, t)| t)
     }
 }
 

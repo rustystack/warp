@@ -18,9 +18,11 @@ path = "src/main.rs"
 warp-core.workspace = true
 warp-crypto.workspace = true
 warp-format.workspace = true
+warp-hash.workspace = true
 warp-io.workspace = true
 warp-net.workspace = true
 warp-compress.workspace = true
+warp-stream.workspace = true
 
 clap.workspace = true
 clap_complete = "4.5"
@@ -34,6 +36,7 @@ serde.workspace = true
 rmp-serde.workspace = true
 rand.workspace = true
 dirs.workspace = true
+rpassword = "7.3"
 
 [features]
 default = []

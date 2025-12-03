@@ -165,6 +165,13 @@ impl ActiveChunkUpload {
     }
 }
 
+/// Chunk metadata for uploads (hash and size)
+#[derive(Debug, Clone, Copy)]
+pub struct ChunkMeta {
+    pub hash: [u8; 32],
+    pub size: u32,
+}
+
 /// Active upload session tracking in-progress upload
 #[derive(Debug, Clone)]
 pub struct UploadSession {
@@ -173,6 +180,10 @@ pub struct UploadSession {
     pub active_chunks: HashMap<ChunkId, ActiveChunkUpload>,
     pub pending_chunks: VecDeque<ChunkId>,
     pub completed_chunks: HashSet<ChunkId>,
+    /// Chunk metadata indexed by chunk ID
+    pub chunk_metadata: HashMap<ChunkId, ChunkMeta>,
+    /// Destinations for each chunk
+    pub destinations: HashMap<ChunkId, Vec<EdgeIdx>>,
 }
 
 impl UploadSession {
@@ -183,6 +194,8 @@ impl UploadSession {
             active_chunks: HashMap::new(),
             pending_chunks: VecDeque::new(),
             completed_chunks: HashSet::new(),
+            chunk_metadata: HashMap::new(),
+            destinations: HashMap::new(),
         }
     }
 
@@ -228,7 +241,7 @@ impl DistributedUploader {
     pub async fn start(
         &self,
         request: TransferRequest,
-        _destinations: HashMap<ChunkId, Vec<EdgeIdx>>,
+        destinations: HashMap<ChunkId, Vec<EdgeIdx>>,
     ) -> Result<UploadSession> {
         self.config.validate()?;
         request
@@ -254,9 +267,18 @@ impl DistributedUploader {
 
         let mut session = UploadSession::new(transfer_id, state);
 
-        // Queue all chunks
-        for chunk_hash in request.chunks.iter() {
+        // Store destinations mapping
+        session.destinations = destinations;
+
+        // Queue all chunks and store metadata
+        for (idx, chunk_hash) in request.chunks.iter().enumerate() {
             let chunk_id = ChunkId::from_hash(chunk_hash);
+            let chunk_size = request.chunk_sizes.get(idx).copied().unwrap_or(0);
+
+            session.chunk_metadata.insert(chunk_id, ChunkMeta {
+                hash: *chunk_hash,
+                size: chunk_size,
+            });
             session.pending_chunks.push_back(chunk_id);
         }
 
@@ -304,12 +326,18 @@ impl DistributedUploader {
         {
             let chunk_id = session.pending_chunks.pop_front().unwrap();
 
-            // Create active chunk upload with dummy data
-            let chunk_hash = [0u8; 32];
-            let chunk_size = 1024;
-            let destinations = vec![EdgeIdx::new(0)]; // Default destination
+            // Get chunk metadata from session (populated in start())
+            let meta = session.chunk_metadata.get(&chunk_id).copied().unwrap_or(ChunkMeta {
+                hash: [0u8; 32],
+                size: 0,
+            });
 
-            let active = ActiveChunkUpload::new(chunk_id, chunk_hash, chunk_size, destinations);
+            // Get destinations for this chunk, or use default
+            let destinations = session.destinations.get(&chunk_id)
+                .cloned()
+                .unwrap_or_else(|| vec![EdgeIdx::new(0)]);
+
+            let active = ActiveChunkUpload::new(chunk_id, meta.hash, meta.size, destinations);
             session.active_chunks.insert(chunk_id, active);
         }
 

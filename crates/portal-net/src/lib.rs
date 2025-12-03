@@ -55,6 +55,10 @@ pub enum PortalNetError {
     /// Hub connection error
     #[error("hub connection error: {0}")]
     HubConnection(String),
+
+    /// Transport layer error (QUIC/WireGuard)
+    #[error("transport error: {0}")]
+    Transport(String),
 }
 
 /// Result type for portal-net operations

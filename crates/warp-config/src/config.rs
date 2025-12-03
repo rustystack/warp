@@ -753,65 +753,70 @@ mod tests {
 
     #[test]
     fn test_config_loader_env_override_network_port() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_NETWORK_PORT", "9999");
+            std::env::set_var("NETPORT_NETWORK_PORT", "9999");
         }
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("NETPORT");
         let config = loader.load().unwrap();
         assert_eq!(config.network.port, 9999);
         unsafe {
-            std::env::remove_var("TEST_NETWORK_PORT");
+            std::env::remove_var("NETPORT_NETWORK_PORT");
         }
     }
 
     #[test]
     fn test_config_loader_env_override_storage_data_dir() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_STORAGE_DATA_DIR", "/custom/data");
+            std::env::set_var("STORDIR_STORAGE_DATA_DIR", "/custom/data");
         }
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("STORDIR");
         let config = loader.load().unwrap();
         assert_eq!(config.storage.data_dir, PathBuf::from("/custom/data"));
         unsafe {
-            std::env::remove_var("TEST_STORAGE_DATA_DIR");
+            std::env::remove_var("STORDIR_STORAGE_DATA_DIR");
         }
     }
 
     #[test]
     fn test_config_loader_env_override_log_level() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_LOG_LEVEL", "error");
+            std::env::set_var("LOGLVL_LOG_LEVEL", "error");
         }
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("LOGLVL");
         let config = loader.load().unwrap();
         assert_eq!(config.log.level, LogLevel::Error);
         unsafe {
-            std::env::remove_var("TEST_LOG_LEVEL");
+            std::env::remove_var("LOGLVL_LOG_LEVEL");
         }
     }
 
     #[test]
     fn test_config_loader_env_override_invalid_port() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_NETWORK_PORT", "invalid");
+            std::env::set_var("INVPORT_NETWORK_PORT", "invalid");
         }
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("INVPORT");
         assert!(loader.load().is_err());
         unsafe {
-            std::env::remove_var("TEST_NETWORK_PORT");
+            std::env::remove_var("INVPORT_NETWORK_PORT");
         }
     }
 
     #[test]
     fn test_config_loader_env_override_bool() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_SCHEDULER_USE_GPU", "false");
+            std::env::set_var("BOOLTEST_SCHEDULER_USE_GPU", "false");
         }
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("BOOLTEST");
         let config = loader.load().unwrap();
         assert_eq!(config.scheduler.use_gpu, false);
         unsafe {
-            std::env::remove_var("TEST_SCHEDULER_USE_GPU");
+            std::env::remove_var("BOOLTEST_SCHEDULER_USE_GPU");
         }
     }
 
@@ -839,8 +844,9 @@ mod tests {
 
     #[test]
     fn test_config_loader_file_overrides_env() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_NETWORK_PORT", "8888");
+            std::env::set_var("FILEOVR_NETWORK_PORT", "8888");
         }
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -851,39 +857,41 @@ mod tests {
         temp_file.write_all(toml.as_bytes()).unwrap();
 
         let loader = ConfigLoader::new()
-            .with_env_prefix("TEST")
+            .with_env_prefix("FILEOVR")
             .with_file(temp_file.path());
         let config = loader.load().unwrap();
 
         // File should override env
         assert_eq!(config.network.port, 7777);
         unsafe {
-            std::env::remove_var("TEST_NETWORK_PORT");
+            std::env::remove_var("FILEOVR_NETWORK_PORT");
         }
     }
 
     #[test]
     fn test_config_loader_env_overrides_default() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_NETWORK_PORT", "8888");
+            std::env::set_var("ENVDEF_NETWORK_PORT", "8888");
         }
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("ENVDEF");
         let config = loader.load().unwrap();
         assert_eq!(config.network.port, 8888);
         unsafe {
-            std::env::remove_var("TEST_NETWORK_PORT");
+            std::env::remove_var("ENVDEF_NETWORK_PORT");
         }
     }
 
     #[test]
     fn test_config_loader_multiple_env_overrides() {
+        // Use unique prefix to avoid parallel test interference
         unsafe {
-            std::env::set_var("TEST_NETWORK_PORT", "8888");
-            std::env::set_var("TEST_NETWORK_QUIC_PORT", "8889");
-            std::env::set_var("TEST_LOG_LEVEL", "debug");
+            std::env::set_var("MULTI_NETWORK_PORT", "8888");
+            std::env::set_var("MULTI_NETWORK_QUIC_PORT", "8889");
+            std::env::set_var("MULTI_LOG_LEVEL", "debug");
         }
 
-        let loader = ConfigLoader::new().with_env_prefix("TEST");
+        let loader = ConfigLoader::new().with_env_prefix("MULTI");
         let config = loader.load().unwrap();
 
         assert_eq!(config.network.port, 8888);
@@ -891,9 +899,9 @@ mod tests {
         assert_eq!(config.log.level, LogLevel::Debug);
 
         unsafe {
-            std::env::remove_var("TEST_NETWORK_PORT");
-            std::env::remove_var("TEST_NETWORK_QUIC_PORT");
-            std::env::remove_var("TEST_LOG_LEVEL");
+            std::env::remove_var("MULTI_NETWORK_PORT");
+            std::env::remove_var("MULTI_NETWORK_QUIC_PORT");
+            std::env::remove_var("MULTI_LOG_LEVEL");
         }
     }
 

@@ -394,4 +394,112 @@ mod tests {
         let result = sender.send_timeout(2, Duration::from_millis(10)).await;
         assert!(matches!(result, Err(StreamError::Timeout { .. })));
     }
+
+    #[tokio::test]
+    async fn test_flow_control_with_stats() {
+        let stats = Arc::new(crate::PipelineStats::new());
+        let flow = FlowControl::with_stats(2, Arc::clone(&stats));
+
+        // Acquire permit
+        let permit = flow.acquire().await.unwrap();
+        assert_eq!(flow.in_flight(), 1);
+
+        // Drop permit
+        drop(permit);
+        assert_eq!(flow.in_flight(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_flow_control_max_in_flight() {
+        let flow = FlowControl::new(3);
+
+        assert_eq!(flow.in_flight(), 0);
+
+        let _p1 = flow.acquire().await.unwrap();
+        let _p2 = flow.acquire().await.unwrap();
+        let _p3 = flow.acquire().await.unwrap();
+
+        assert_eq!(flow.in_flight(), 3);
+
+        // Should not be able to acquire more
+        assert!(flow.try_acquire().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_flow_control_concurrent_acquire() {
+        let flow = Arc::new(FlowControl::new(2));
+
+        let flow1 = Arc::clone(&flow);
+        let flow2 = Arc::clone(&flow);
+
+        let h1 = tokio::spawn(async move {
+            let _p = flow1.acquire().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+
+        let h2 = tokio::spawn(async move {
+            let _p = flow2.acquire().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+
+        h1.await.unwrap();
+        h2.await.unwrap();
+
+        assert_eq!(flow.in_flight(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_backpressure_receiver_close() {
+        let (sender, receiver) = BackpressureController::<u32>::new(2);
+
+        sender.send(1).await.unwrap();
+
+        // Close receiver
+        drop(receiver);
+
+        // Sender should still work (won't fail)
+        // Channel is internally managed, so this tests the drop behavior
+    }
+
+    #[tokio::test]
+    async fn test_flow_control_default_state() {
+        let flow = FlowControl::new(10);
+
+        assert_eq!(flow.in_flight(), 0);
+        assert!(!flow.is_paused());
+    }
+
+    #[tokio::test]
+    async fn test_flow_control_debug() {
+        let flow = FlowControl::new(5);
+
+        // Test that FlowControl can be debugged
+        let debug_str = format!("{:?}", flow);
+        assert!(debug_str.contains("FlowControl"));
+    }
+
+    #[tokio::test]
+    async fn test_backpressure_sequential_sends() {
+        let (sender, mut receiver) = BackpressureController::<u32>::new(10);
+
+        // Send multiple values sequentially
+        for i in 0..5 {
+            sender.send(i).await.unwrap();
+        }
+
+        // Receive all values
+        let mut received = vec![];
+        while let Ok(v) = tokio::time::timeout(
+            Duration::from_millis(10),
+            receiver.recv()
+        ).await {
+            if let Some(v) = v {
+                received.push(v);
+            } else {
+                break;
+            }
+        }
+
+        assert_eq!(received.len(), 5);
+    }
 }

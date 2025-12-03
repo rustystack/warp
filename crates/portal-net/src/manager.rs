@@ -7,12 +7,14 @@
 //! - Connection mode selection (direct P2P vs relay)
 //! - Network state tracking and events
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
+use warp_net::{WarpConnection, WarpEndpoint};
 
 use crate::allocator::{BitmapAllocator, IpAllocator};
-use crate::discovery::{LocalEdgeInfo, MdnsDiscovery};
+use crate::discovery::MdnsDiscovery;
 use crate::peer::PeerManager;
 use crate::types::{NetworkConfig, NetworkEvent, PeerConfig, PeerMetadata, PeerStatus, VirtualIp};
 use crate::{PortalNetError, Result};
@@ -63,6 +65,12 @@ struct ManagerState {
     hub_endpoint: SocketAddr,
     /// Event broadcaster
     event_tx: broadcast::Sender<NetworkEvent>,
+    /// QUIC endpoint for connections
+    endpoint: Option<Arc<WarpEndpoint>>,
+    /// Active peer connections (keyed by public key)
+    peer_connections: HashMap<[u8; 32], Arc<WarpConnection>>,
+    /// Hub connection (if connected)
+    hub_connection: Option<Arc<WarpConnection>>,
 }
 
 /// High-level network orchestration
@@ -105,6 +113,9 @@ impl NetworkManager {
             mdns: None,
             hub_endpoint: config.hub.endpoint,
             event_tx,
+            endpoint: None,
+            peer_connections: HashMap::new(),
+            hub_connection: None,
         };
 
         Ok(NetworkManager {
@@ -127,6 +138,14 @@ impl NetworkManager {
             }
         }
 
+        // Create QUIC endpoint for connections
+        if state.endpoint.is_none() {
+            let endpoint = WarpEndpoint::client()
+                .await
+                .map_err(|e| PortalNetError::Transport(format!("Failed to create endpoint: {}", e)))?;
+            state.endpoint = Some(Arc::new(endpoint));
+        }
+
         // Initialize mDNS if enabled (but don't register in tests to avoid hanging)
         if self.config.mdns.enabled {
             // For tests, skip actual mDNS initialization to avoid blocking
@@ -134,11 +153,39 @@ impl NetworkManager {
             state.state = NetworkState::DiscoveryOnly;
         }
 
-        // Simulate Hub connection (in real implementation, would connect via QUIC/WebSocket)
-        // For now, just transition to HubConnected state
-        if state.state == NetworkState::DiscoveryOnly || state.state == NetworkState::Initializing
-        {
-            state.state = NetworkState::HubConnected;
+        // Attempt to connect to Hub
+        if let Some(ref endpoint) = state.endpoint {
+            match endpoint.connect(state.hub_endpoint, "portal-hub").await {
+                Ok(conn) => {
+                    // Perform handshake
+                    match conn.handshake().await {
+                        Ok(_params) => {
+                            tracing::info!("Connected to Hub at {}", state.hub_endpoint);
+                            state.hub_connection = Some(Arc::new(conn));
+                            state.state = NetworkState::HubConnected;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Hub handshake failed: {}, continuing in discovery mode", e);
+                            // Fall back to discovery-only mode
+                            if state.state == NetworkState::Initializing {
+                                state.state = NetworkState::DiscoveryOnly;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to connect to Hub: {}, continuing in discovery mode", e);
+                    // Fall back to discovery-only mode
+                    if state.state == NetworkState::Initializing {
+                        state.state = NetworkState::DiscoveryOnly;
+                    }
+                }
+            }
+        }
+
+        // If we couldn't connect but haven't set state yet, set it now
+        if state.state == NetworkState::Initializing {
+            state.state = NetworkState::DiscoveryOnly;
         }
 
         Ok(())
@@ -189,18 +236,67 @@ impl NetworkManager {
     }
 
     /// Sends data to a peer using best available path
-    pub async fn send(&self, to: &[u8; 32], _data: &[u8]) -> Result<()> {
+    pub async fn send(&self, to: &[u8; 32], data: &[u8]) -> Result<()> {
         let route = self.connect_to(to).await?;
 
         match route {
-            ConnectionRoute::Direct { .. } => {
-                // In real implementation, would send via WireGuard/QUIC
-                // For now, just verify the route exists
-                Ok(())
+            ConnectionRoute::Direct { endpoint } => {
+                // First check if we have an existing connection
+                {
+                    let state = self.state.read().await;
+                    if let Some(conn) = state.peer_connections.get(to) {
+                        // Use existing connection - send as a chunk with id 0
+                        return conn.send_chunk(0, data)
+                            .await
+                            .map_err(|e| PortalNetError::Transport(format!("Failed to send: {}", e)));
+                    }
+                }
+
+                // Need to establish new connection - get endpoint clone first
+                let ep = {
+                    let state = self.state.read().await;
+                    state.endpoint.clone()
+                };
+
+                if let Some(ep) = ep {
+                    let conn = ep.connect(endpoint, "portal-peer")
+                        .await
+                        .map_err(|e| PortalNetError::Transport(format!("Failed to connect: {}", e)))?;
+
+                    // Perform handshake
+                    conn.handshake()
+                        .await
+                        .map_err(|e| PortalNetError::Transport(format!("Handshake failed: {}", e)))?;
+
+                    // Send the data
+                    conn.send_chunk(0, data)
+                        .await
+                        .map_err(|e| PortalNetError::Transport(format!("Failed to send: {}", e)))?;
+
+                    // Store connection for reuse
+                    let mut state = self.state.write().await;
+                    state.peer_connections.insert(*to, Arc::new(conn));
+                    Ok(())
+                } else {
+                    Err(PortalNetError::Transport("No endpoint available".to_string()))
+                }
             }
-            ConnectionRoute::Relayed { .. } => {
-                // In real implementation, would relay via Hub
-                Ok(())
+            ConnectionRoute::Relayed { via_hub: _ } => {
+                // Relay data through Hub connection
+                let state = self.state.read().await;
+                if let Some(ref hub_conn) = state.hub_connection {
+                    // Send via Hub - include target peer ID in the data
+                    // Format: [32 bytes target key] + [data]
+                    let mut relay_data = Vec::with_capacity(32 + data.len());
+                    relay_data.extend_from_slice(to);
+                    relay_data.extend_from_slice(data);
+
+                    hub_conn.send_chunk(0, &relay_data)
+                        .await
+                        .map_err(|e| PortalNetError::Transport(format!("Failed to relay: {}", e)))
+                } else {
+                    Err(PortalNetError::Transport("Not connected to Hub for relay".to_string()))
+                }
             }
             ConnectionRoute::Unavailable => Err(PortalNetError::PeerNotFound(format!(
                 "peer {} is unavailable",
@@ -596,7 +692,15 @@ mod tests {
 
         let data = b"test data";
         let result = manager.send(&test_key(2), data).await;
-        assert!(result.is_ok());
+        // In unit tests without a real peer listening, connection will fail
+        // This correctly reflects real behavior - you need an actual peer to send to
+        assert!(result.is_err());
+        match result {
+            Err(PortalNetError::Transport(msg)) => {
+                assert!(msg.contains("Failed to connect"), "Expected connection failure: {}", msg);
+            }
+            other => panic!("Expected Transport error, got: {:?}", other),
+        }
     }
 
     #[tokio::test]
@@ -810,5 +914,186 @@ mod tests {
         let state = NetworkState::Initializing;
         let debug_str = format!("{:?}", state);
         assert!(debug_str.contains("Initializing"));
+    }
+
+    // === Failure Scenario Tests ===
+
+    #[tokio::test]
+    async fn test_send_to_unknown_peer_returns_error() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // Try to send to a peer that was never added
+        let unknown_key = [42u8; 32];
+        let result = manager.send(&unknown_key, b"test data").await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PortalNetError::PeerNotFound(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_update_nonexistent_peer_fails() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // Try to update a peer that doesn't exist
+        let unknown_key = test_key(99);
+        let result = manager
+            .update_peer_status(&unknown_key, PeerStatus::DirectP2P)
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_update_nonexistent_peer_endpoint_fails() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // Try to update endpoint for peer that doesn't exist
+        let unknown_key = test_key(99);
+        let endpoint: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let result = manager.update_peer_endpoint(&unknown_key, endpoint).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remove_nonexistent_peer_is_noop() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // Removing a peer that doesn't exist should not fail
+        // It's a no-op
+        manager.remove_peer(&test_key(99)).await;
+
+        // State should still be valid
+        let state = manager.state().await;
+        assert!(state != NetworkState::Offline);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_twice_is_safe() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // First shutdown
+        manager.shutdown().await.unwrap();
+        assert_eq!(manager.state().await, NetworkState::Offline);
+
+        // Second shutdown should still succeed
+        manager.shutdown().await.unwrap();
+        assert_eq!(manager.state().await, NetworkState::Offline);
+    }
+
+    #[tokio::test]
+    async fn test_operations_after_shutdown_fail_gracefully() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+        manager.shutdown().await.unwrap();
+
+        // Operations after shutdown - should handle gracefully
+        let peers = manager.peers().await;
+        assert!(peers.is_empty());
+
+        // Local IP should still be queryable
+        let local_ip = manager.local_ip().await;
+        // May be Some or None depending on implementation
+        let _ = local_ip;
+    }
+
+    #[tokio::test]
+    async fn test_peer_status_transitions() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // Add peer
+        manager
+            .add_peer(PeerConfig::new(test_key(2), VirtualIp::new(100)))
+            .await
+            .unwrap();
+
+        // Transition through all statuses
+        manager
+            .update_peer_status(&test_key(2), PeerStatus::DirectP2P)
+            .await
+            .unwrap();
+        assert!(
+            manager
+                .get_peer(&test_key(2))
+                .await
+                .unwrap()
+                .status
+                == PeerStatus::DirectP2P
+        );
+
+        manager
+            .update_peer_status(&test_key(2), PeerStatus::Relayed)
+            .await
+            .unwrap();
+        assert!(
+            manager
+                .get_peer(&test_key(2))
+                .await
+                .unwrap()
+                .status
+                == PeerStatus::Relayed
+        );
+
+        manager
+            .update_peer_status(&test_key(2), PeerStatus::Offline)
+            .await
+            .unwrap();
+        assert!(
+            manager
+                .get_peer(&test_key(2))
+                .await
+                .unwrap()
+                .status
+                == PeerStatus::Offline
+        );
+    }
+
+    #[tokio::test]
+    async fn test_network_error_display() {
+        // Test all error variants have proper display
+        let err = PortalNetError::PeerNotFound("abc123".to_string());
+        assert!(err.to_string().contains("abc123"));
+
+        let err = PortalNetError::Configuration("bad config".to_string());
+        assert!(err.to_string().contains("bad config"));
+
+        let err = PortalNetError::Transport("connection failed".to_string());
+        assert!(err.to_string().contains("connection failed"));
+
+        let err = PortalNetError::HubConnection("hub unreachable".to_string());
+        assert!(err.to_string().contains("hub unreachable"));
+    }
+
+    #[tokio::test]
+    async fn test_connect_to_with_no_endpoint() {
+        let config = test_config();
+        let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
+        manager.start().await.unwrap();
+
+        // Add peer without endpoint
+        manager
+            .add_peer(PeerConfig::new(test_key(2), VirtualIp::new(100)))
+            .await
+            .unwrap();
+
+        // connect_to should return Relayed route when no endpoint
+        let route = manager.connect_to(&test_key(2)).await.unwrap();
+        assert!(matches!(route, ConnectionRoute::Relayed { .. }));
     }
 }

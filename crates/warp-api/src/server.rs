@@ -276,8 +276,9 @@ mod tests {
         let spec = server.openapi_spec();
 
         assert!(!spec.is_empty());
-        assert!(spec.contains("\"title\":\"Warp API\""));
-        assert!(spec.contains("\"version\":\"0.1.0\""));
+        // Note: serde_json::to_string_pretty adds space after colon
+        assert!(spec.contains("\"title\": \"Warp API\""));
+        assert!(spec.contains("\"version\": \"0.1.0\""));
     }
 
     #[test]

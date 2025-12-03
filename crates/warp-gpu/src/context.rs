@@ -5,6 +5,8 @@
 
 use crate::{Error, Result};
 use cudarc::driver::{
+    result as cuda_result,
+    sys::CUdevice_attribute,
     CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream,
     DeviceRepr, LaunchConfig, ValidAsZeroBits,
 };
@@ -125,21 +127,52 @@ impl GpuContext {
     }
 
     /// Query device capabilities via CUDA API
-    fn query_capabilities(_device_id: usize) -> Result<DeviceCapabilities> {
-        // Use conservative estimates for memory and capabilities
-        // TODO: Query actual device capabilities via cudarc 0.18 APIs
-        let total_memory = 8 * 1024 * 1024 * 1024; // 8GB conservative estimate
+    fn query_capabilities(device_id: usize) -> Result<DeviceCapabilities> {
+        // Get the CUdevice handle for attribute queries
+        let dev = cuda_result::device::get(device_id as i32)
+            .map_err(|e| Error::DeviceQuery(format!("Failed to get device {}: {:?}", device_id, e)))?;
 
-        // For now, we use conservative defaults for other properties
-        // These could be queried via cudarc driver APIs in the future
+        // Helper to query a device attribute
+        let get_attr = |attr: CUdevice_attribute| -> Result<i32> {
+            unsafe {
+                cuda_result::device::get_attribute(dev, attr)
+                    .map_err(|e| Error::DeviceQuery(format!("Failed to get attribute {:?}: {:?}", attr, e)))
+            }
+        };
+
+        // Query total memory
+        let total_memory = unsafe {
+            cuda_result::device::total_mem(dev)
+                .map_err(|e| Error::DeviceQuery(format!("Failed to get total memory: {:?}", e)))?
+        };
+
+        // Query compute capability
+        let compute_major = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?;
+        let compute_minor = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?;
+
+        // Query thread/block limits
+        let max_threads_per_block = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK)?;
+        let max_block_dim_x = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X)?;
+        let max_block_dim_y = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y)?;
+        let max_block_dim_z = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z)?;
+
+        // Query grid limits
+        let max_grid_dim_x = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X)?;
+        let max_grid_dim_y = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y)?;
+        let max_grid_dim_z = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z)?;
+
+        // Query other properties
+        let warp_size = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_WARP_SIZE)?;
+        let multiprocessor_count = get_attr(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)?;
+
         Ok(DeviceCapabilities {
-            compute_capability: (7, 0), // Conservative default (Volta+)
+            compute_capability: (compute_major, compute_minor),
             total_memory,
-            max_threads_per_block: 1024,
-            max_block_dims: (1024, 1024, 64),
-            max_grid_dims: (2147483647, 65535, 65535),
-            warp_size: 32,
-            multiprocessor_count: 80, // Typical for mid-range GPUs
+            max_threads_per_block,
+            max_block_dims: (max_block_dim_x, max_block_dim_y, max_block_dim_z),
+            max_grid_dims: (max_grid_dim_x, max_grid_dim_y, max_grid_dim_z),
+            warp_size,
+            multiprocessor_count,
         })
     }
 
@@ -189,16 +222,12 @@ impl GpuContext {
 
     /// Get free memory in bytes
     ///
-    /// This queries the current free memory on the device.
+    /// This queries the current free memory on the device using cuMemGetInfo.
     pub fn free_memory(&self) -> Result<usize> {
-        // Query via cuMemGetInfo equivalent
-        // cudarc doesn't expose this directly, so we calculate based on total
-        // In production, use raw CUDA API: cuMemGetInfo
-        let total = self.total_memory();
-
-        // Conservative estimate: assume 75% free for safety
-        // Real implementation would call cuMemGetInfo
-        Ok((total as f64 * 0.75) as usize)
+        // Query via cuMemGetInfo - returns (free, total)
+        let (free, _total) = cuda_result::mem_get_info()
+            .map_err(|e| Error::DeviceQuery(format!("Failed to get memory info: {:?}", e)))?;
+        Ok(free)
     }
 
     /// Synchronize the context (wait for all operations to complete)

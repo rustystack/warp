@@ -17,6 +17,15 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+/// CPU sample for usage calculation
+#[derive(Clone, Default)]
+struct CpuSample {
+    /// Total CPU time (user + system) in ticks
+    cpu_ticks: u64,
+    /// Wall clock time when sample was taken
+    timestamp: Option<std::time::Instant>,
+}
+
 /// Shared application state
 #[derive(Clone)]
 pub struct ApiState {
@@ -26,21 +35,129 @@ pub struct ApiState {
     edges: Arc<RwLock<HashMap<String, EdgeInfo>>>,
     /// Server start time
     start_time: std::time::Instant,
+    /// Total bytes transferred counter
+    bytes_transferred: warp_telemetry::Counter,
+    /// Last CPU sample for usage calculation
+    last_cpu_sample: Arc<RwLock<CpuSample>>,
 }
 
 impl ApiState {
     /// Create new API state
     pub fn new() -> Self {
+        let registry = warp_telemetry::MetricRegistry::global();
         Self {
             transfers: Arc::new(RwLock::new(HashMap::new())),
             edges: Arc::new(RwLock::new(HashMap::new())),
             start_time: std::time::Instant::now(),
+            bytes_transferred: registry.counter("bytes_transferred", "Total bytes transferred"),
+            last_cpu_sample: Arc::new(RwLock::new(CpuSample::default())),
         }
     }
 
     /// Get uptime in seconds
     pub fn uptime_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
+    }
+
+    /// Record bytes transferred
+    pub fn record_bytes(&self, bytes: u64) {
+        self.bytes_transferred.inc_by(bytes);
+    }
+
+    /// Get total bytes transferred
+    pub fn total_bytes_transferred(&self) -> u64 {
+        self.bytes_transferred.get()
+    }
+
+    /// Calculate average throughput in Mbps
+    pub fn average_throughput_mbps(&self) -> f64 {
+        let uptime = self.uptime_seconds();
+        if uptime == 0 {
+            return 0.0;
+        }
+        let bytes = self.total_bytes_transferred();
+        // bytes/second * 8 = bits/second, /1_000_000 = Mbps
+        (bytes as f64 / uptime as f64) * 8.0 / 1_000_000.0
+    }
+
+    /// Get process memory usage in bytes (Linux /proc/self/statm)
+    pub fn memory_usage_bytes(&self) -> u64 {
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(statm) = std::fs::read_to_string("/proc/self/statm") {
+                // Format: size resident shared text lib data dt (in pages)
+                // Second field is resident set size
+                if let Some(rss_pages) = statm.split_whitespace().nth(1) {
+                    if let Ok(pages) = rss_pages.parse::<u64>() {
+                        return pages * 4096; // Assume 4KB pages
+                    }
+                }
+            }
+            0
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            0
+        }
+    }
+
+    /// Get CPU usage percent by sampling /proc/self/stat
+    ///
+    /// Returns CPU usage as percentage (0-100 per core, can exceed 100% on multi-core).
+    /// First call returns 0.0 as baseline sample. Subsequent calls calculate delta.
+    pub async fn cpu_usage_percent(&self) -> f64 {
+        #[cfg(target_os = "linux")]
+        {
+            // Read current CPU ticks from /proc/self/stat
+            // Format: pid (comm) state ppid pgrp ... utime stime ...
+            // utime (14th field) and stime (15th field) are in clock ticks
+            let current_ticks = match std::fs::read_to_string("/proc/self/stat") {
+                Ok(stat) => {
+                    let fields: Vec<&str> = stat.split_whitespace().collect();
+                    if fields.len() > 14 {
+                        let utime = fields[13].parse::<u64>().unwrap_or(0);
+                        let stime = fields[14].parse::<u64>().unwrap_or(0);
+                        utime + stime
+                    } else {
+                        return 0.0;
+                    }
+                }
+                Err(_) => return 0.0,
+            };
+
+            let now = std::time::Instant::now();
+
+            // Get clock ticks per second (usually 100 on Linux)
+            let ticks_per_sec = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
+            if ticks_per_sec <= 0.0 {
+                return 0.0;
+            }
+
+            // Update sample and calculate delta
+            let mut last_sample = self.last_cpu_sample.write().await;
+            let cpu_percent = if let Some(prev_time) = last_sample.timestamp {
+                let elapsed_secs = now.duration_since(prev_time).as_secs_f64();
+                if elapsed_secs > 0.0 {
+                    let tick_delta = current_ticks.saturating_sub(last_sample.cpu_ticks);
+                    let cpu_secs = tick_delta as f64 / ticks_per_sec;
+                    (cpu_secs / elapsed_secs) * 100.0
+                } else {
+                    0.0
+                }
+            } else {
+                0.0 // First sample, no previous data
+            };
+
+            // Store current sample for next call
+            last_sample.cpu_ticks = current_ticks;
+            last_sample.timestamp = Some(now);
+
+            cpu_percent
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            0.0
+        }
     }
 }
 
@@ -58,8 +175,8 @@ pub fn create_router(state: ApiState) -> Router {
         .route("/metrics", get(metrics_handler))
         .route("/transfers", post(create_transfer_handler))
         .route("/transfers", get(list_transfers_handler))
-        .route("/transfers/:id", get(get_transfer_handler))
-        .route("/transfers/:id", delete(cancel_transfer_handler))
+        .route("/transfers/{id}", get(get_transfer_handler))
+        .route("/transfers/{id}", delete(cancel_transfer_handler))
         .route("/edges", get(list_edges_handler))
         .with_state(state)
 }
@@ -129,10 +246,10 @@ async fn metrics_handler(State(state): State<ApiState>) -> Json<MetricsResponse>
 
     Json(MetricsResponse {
         active_transfers: active_count,
-        total_bytes_transferred: 0, // Would be tracked in real implementation
-        average_throughput_mbps: 0.0,
-        cpu_usage_percent: 0.0,
-        memory_usage_bytes: 0,
+        total_bytes_transferred: state.total_bytes_transferred(),
+        average_throughput_mbps: state.average_throughput_mbps(),
+        cpu_usage_percent: state.cpu_usage_percent().await,
+        memory_usage_bytes: state.memory_usage_bytes(),
     })
 }
 

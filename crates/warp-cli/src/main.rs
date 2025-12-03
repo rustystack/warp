@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use warp_cli::{Cli, Commands};
+use warp_cli::{Cli, Commands, StreamAction};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -49,6 +49,16 @@ async fn main() -> Result<()> {
         }
         Commands::Completions { shell, output } => {
             warp_cli::commands::completions::execute(shell, output.as_deref()).await
+        }
+        Commands::Stream { action } => {
+            match action {
+                StreamAction::Encrypt { password, chunk_size, no_gpu, progress } => {
+                    warp_cli::commands::stream::encrypt(password.as_deref(), chunk_size, no_gpu, progress).await
+                }
+                StreamAction::Decrypt { password, no_gpu, progress } => {
+                    warp_cli::commands::stream::decrypt(password.as_deref(), no_gpu, progress).await
+                }
+            }
         }
     }
 }

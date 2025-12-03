@@ -98,4 +98,41 @@ pub enum Commands {
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
     },
+    /// Real-time streaming encryption/decryption (pipe-based)
+    Stream {
+        #[command(subcommand)]
+        action: StreamAction,
+    },
+}
+
+/// Stream subcommands for pipe-based encryption/decryption
+#[derive(clap::Subcommand)]
+pub enum StreamAction {
+    /// Encrypt data from stdin to stdout
+    Encrypt {
+        /// Encryption password (prompts if not provided)
+        #[arg(long)]
+        password: Option<String>,
+        /// Chunk size in bytes (default: 64KB for low latency)
+        #[arg(long, default_value = "65536")]
+        chunk_size: usize,
+        /// Disable GPU acceleration
+        #[arg(long)]
+        no_gpu: bool,
+        /// Show progress to stderr
+        #[arg(long)]
+        progress: bool,
+    },
+    /// Decrypt data from stdin to stdout
+    Decrypt {
+        /// Decryption password (prompts if not provided)
+        #[arg(long)]
+        password: Option<String>,
+        /// Disable GPU acceleration
+        #[arg(long)]
+        no_gpu: bool,
+        /// Show progress to stderr
+        #[arg(long)]
+        progress: bool,
+    },
 }

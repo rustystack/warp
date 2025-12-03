@@ -376,17 +376,36 @@ impl SwarmDownloader {
             OrchError::Network(format!("Failed to acquire connection: {}", e))
         })?;
 
-        let mock_data = vec![0u8; active.chunk_size.min(1024) as usize];
-        conn.send(&mock_data).map_err(|e| {
-            OrchError::Network(format!("Failed to send request: {}", e))
+        // Request the chunk using WANT frame protocol
+        // ChunkId is u64, Frame uses u32, safe truncation for chunk indices
+        let chunk_id_u32 = active.chunk_id.get() as u32;
+        conn.request_chunks(vec![chunk_id_u32]).await.map_err(|e| {
+            OrchError::Network(format!("Failed to send WANT request: {}", e))
         })?;
 
-        let mut buffer = vec![0u8; active.chunk_size.min(1024) as usize];
-        let received = conn.receive(&mut buffer).map_err(|e| {
-            OrchError::Network(format!("Failed to receive data: {}", e))
+        // Receive the chunk data via CHUNK frame
+        let (received_id, data) = conn.recv_chunk().await.map_err(|e| {
+            OrchError::Network(format!("Failed to receive chunk: {}", e))
         })?;
 
-        Ok(received as u64)
+        // Verify we got the right chunk
+        if received_id != chunk_id_u32 {
+            return Err(OrchError::Network(format!(
+                "Received wrong chunk: expected {}, got {}",
+                chunk_id_u32, received_id
+            )));
+        }
+
+        // Verify chunk hash matches expected
+        let actual_hash = warp_hash::hash(&data);
+        if actual_hash != active.chunk_hash {
+            return Err(OrchError::Network(format!(
+                "Chunk {} hash mismatch",
+                chunk_id_u32
+            )));
+        }
+
+        Ok(data.len() as u64)
     }
 
     /// Cancel a download session

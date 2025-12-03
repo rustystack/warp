@@ -22,5 +22,8 @@ warp-config = { workspace = true }
 warp-telemetry = { workspace = true }
 uuid = { version = "1.16", features = ["v4", "serde"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tokio-test = "0.4"

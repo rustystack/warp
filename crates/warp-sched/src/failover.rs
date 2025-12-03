@@ -4,6 +4,7 @@
 //! a sub-50ms latency target. It tracks active transfers, detects timeouts,
 //! and makes intelligent routing decisions based on edge health and retry limits.
 
+use crate::cost::CostMatrix;
 use crate::paths::PathSelector;
 use crate::{ChunkId, CpuStateBuffers, EdgeIdx};
 use serde::{Deserialize, Serialize};
@@ -254,6 +255,7 @@ impl CpuFailoverManager {
         reason: FailoverReason,
         state: &CpuStateBuffers,
         paths: &PathSelector,
+        cost_matrix: &CostMatrix,
     ) -> FailoverDecision {
         let start = Instant::now();
         let retry_count = self
@@ -262,7 +264,7 @@ impl CpuFailoverManager {
             .map(|t| t.retry_count)
             .unwrap_or(0);
 
-        let action = self.decide_action(chunk_id, edge_idx, reason, retry_count, state, paths);
+        let action = self.decide_action(chunk_id, edge_idx, reason, retry_count, state, paths, cost_matrix);
 
         let decision = FailoverDecision::new(chunk_id, reason, action, edge_idx, retry_count);
 
@@ -292,6 +294,7 @@ impl CpuFailoverManager {
         retry_count: u8,
         state: &CpuStateBuffers,
         paths: &PathSelector,
+        cost_matrix: &CostMatrix,
     ) -> FailoverAction {
         // Check if max retries exceeded
         if retry_count >= self.config.max_retries {
@@ -313,8 +316,8 @@ impl CpuFailoverManager {
             _ => {}
         }
 
-        // Try to find alternative route
-        if let Some(alternative) = self.find_alternative_edges(chunk_id, edge_idx, state, paths) {
+        // Try to find alternative route using PathSelector for optimal selection
+        if let Some(alternative) = self.find_alternative_edges(chunk_id, edge_idx, state, paths, cost_matrix) {
             return FailoverAction::Reroute {
                 new_edges: alternative,
             };
@@ -345,31 +348,33 @@ impl CpuFailoverManager {
         }
     }
 
-    /// Finds alternative edges for rerouting.
+    /// Finds alternative edges for rerouting using PathSelector for optimal selection.
     fn find_alternative_edges(
         &self,
-        _chunk_id: ChunkId,
+        chunk_id: ChunkId,
         failed_edge: EdgeIdx,
         state: &CpuStateBuffers,
-        _paths: &PathSelector,
+        paths: &PathSelector,
+        cost_matrix: &CostMatrix,
     ) -> Option<Vec<EdgeIdx>> {
-        // Find available edges that are healthy and not in cooldown
-        let available_edges: HashSet<EdgeIdx> = (0..state.edge_count())
-            .map(|idx| EdgeIdx::from(idx as u32))
-            .filter(|&idx| {
-                idx != failed_edge
-                    && self.is_edge_healthy(idx, state)
-                    && !self.is_edge_in_cooldown(idx)
-            })
-            .collect();
+        // Use PathSelector to get optimal paths ranked by cost
+        let selection = paths.select(chunk_id, cost_matrix);
 
-        if available_edges.is_empty() {
+        if !selection.has_paths() {
             return None;
         }
 
-        // Simple strategy: return first available edge
-        // In a real implementation, you'd use PathSelector to find optimal path
-        let alternative: Vec<EdgeIdx> = available_edges.into_iter().take(1).collect();
+        // Filter out the failed edge and any edges in cooldown or unhealthy
+        let alternative: Vec<EdgeIdx> = selection
+            .selected_edges
+            .iter()
+            .map(|(edge_idx, _cost)| *edge_idx)
+            .filter(|&edge_idx| {
+                edge_idx != failed_edge
+                    && self.is_edge_healthy(edge_idx, state)
+                    && !self.is_edge_in_cooldown(edge_idx)
+            })
+            .collect();
 
         if alternative.is_empty() {
             None
@@ -452,8 +457,9 @@ impl FailoverManager {
         reason: FailoverReason,
         state: &CpuStateBuffers,
         paths: &PathSelector,
+        cost_matrix: &CostMatrix,
     ) -> FailoverDecision {
-        self.cpu.decide(chunk_id, edge_idx, reason, state, paths)
+        self.cpu.decide(chunk_id, edge_idx, reason, state, paths, cost_matrix)
     }
 
     /// Marks a transfer as complete.
@@ -530,6 +536,21 @@ mod tests {
             diversity_weight: 0.1,
         };
         PathSelector::new(path_config)
+    }
+
+    fn create_test_cost_matrix(state: &mut CpuStateBuffers, num_chunks: usize, num_edges: usize) -> CostMatrix {
+        use crate::cost::CostConfig;
+
+        // Add replicas for all chunks to all edges so PathSelector can find them
+        for chunk_idx in 0..num_chunks {
+            for edge_idx in 0..num_edges {
+                state.add_replica(chunk_idx as u32, EdgeIdx::from(edge_idx as u32));
+            }
+        }
+
+        let mut matrix = CostMatrix::new(num_chunks, num_edges, CostConfig::default());
+        matrix.compute(state);
+        matrix
     }
 
     #[test]
@@ -638,8 +659,9 @@ mod tests {
     #[test]
     fn test_decide_retry_action() {
         let manager = CpuFailoverManager::new(create_test_config());
-        let state = create_test_state(10, 10);
+        let mut state = create_test_state(10, 10);
         let paths = create_test_path_selector();
+        let cost_matrix = create_test_cost_matrix(&mut state, 10, 10);
 
         let decision = manager.decide(
             ChunkId::from(5),
@@ -647,6 +669,7 @@ mod tests {
             FailoverReason::TransferFailed,
             &state,
             &paths,
+            &cost_matrix,
         );
 
         assert_eq!(decision.chunk_id, ChunkId::from(5));
@@ -660,8 +683,9 @@ mod tests {
     #[test]
     fn test_decide_reroute_action() {
         let mut manager = CpuFailoverManager::new(create_test_config());
-        let state = create_test_state(10, 10);
+        let mut state = create_test_state(10, 10);
         let paths = create_test_path_selector();
+        let cost_matrix = create_test_cost_matrix(&mut state, 10, 10);
 
         // Mark edge as failed to trigger reroute
         manager.failed_edges.insert(EdgeIdx::from(3u32), Instant::now());
@@ -672,6 +696,7 @@ mod tests {
             FailoverReason::EdgeOffline,
             &state,
             &paths,
+            &cost_matrix,
         );
 
         assert_eq!(decision.chunk_id, ChunkId::from(5));
@@ -684,8 +709,9 @@ mod tests {
     #[test]
     fn test_decide_abort_max_retries() {
         let mut manager = CpuFailoverManager::new(create_test_config());
-        let state = create_test_state(10, 10);
+        let mut state = create_test_state(10, 10);
         let paths = create_test_path_selector();
+        let cost_matrix = create_test_cost_matrix(&mut state, 10, 10);
 
         // Track transfer with max retries
         manager.track_transfer(ChunkId::from(5), EdgeIdx::from(3u32));
@@ -699,6 +725,7 @@ mod tests {
             FailoverReason::TransferFailed,
             &state,
             &paths,
+            &cost_matrix,
         );
 
         match decision.action {
@@ -804,8 +831,9 @@ mod tests {
     #[test]
     fn test_gpu_wrapper_delegation() {
         let mut manager = FailoverManager::new(create_test_config());
-        let state = create_test_state(10, 10);
+        let mut state = create_test_state(10, 10);
         let paths = create_test_path_selector();
+        let cost_matrix = create_test_cost_matrix(&mut state, 10, 10);
 
         // Test track/complete/report/decide/metrics all delegate to CPU
         manager.track_transfer(ChunkId::from(5), EdgeIdx::from(10u32));
@@ -815,7 +843,7 @@ mod tests {
         assert!(manager.cpu.failed_edges.contains_key(&EdgeIdx::from(10u32)));
 
         let decision = manager.decide(ChunkId::from(5), EdgeIdx::from(3u32),
-            FailoverReason::TransferFailed, &state, &paths);
+            FailoverReason::TransferFailed, &state, &paths, &cost_matrix);
         assert_eq!(decision.chunk_id, ChunkId::from(5));
 
         manager.complete_transfer(ChunkId::from(5));
@@ -848,31 +876,56 @@ mod tests {
 
     #[test]
     fn test_find_alternative_edges() {
+        use crate::cost::CostConfig;
+
         // Test no healthy edges
         let manager = CpuFailoverManager::new(create_test_config());
         let mut state = create_test_state(5, 10);
         let paths = create_test_path_selector();
 
+        // Add replicas before computing costs
+        for chunk_idx in 0..10 {
+            for edge_idx in 0..5 {
+                state.add_replica(chunk_idx as u32, EdgeIdx::from(edge_idx as u32));
+            }
+        }
+
+        let mut cost_matrix = CostMatrix::new(10, 5, CostConfig::default());
+        cost_matrix.compute(&state);
+
+        // Mark all edges as unhealthy
         for i in 0..state.edge_count() {
             let unhealthy = crate::EdgeStateGpu::new(EdgeIdx::from(i as u32), 100_000_000, 10_000, 0.1, 10);
             let _ = state.update_edge(EdgeIdx::from(i as u32), unhealthy);
         }
-        assert!(manager.find_alternative_edges(ChunkId::from(5), EdgeIdx::from(3u32), &state, &paths).is_none());
+        assert!(manager.find_alternative_edges(ChunkId::from(5), EdgeIdx::from(3u32), &state, &paths, &cost_matrix).is_none());
 
         // Test all in cooldown
         let mut manager2 = CpuFailoverManager::new(create_test_config());
-        let state2 = create_test_state(5, 10);
+        let mut state2 = create_test_state(5, 10);
+
+        // Add replicas before computing costs
+        for chunk_idx in 0..10 {
+            for edge_idx in 0..5 {
+                state2.add_replica(chunk_idx as u32, EdgeIdx::from(edge_idx as u32));
+            }
+        }
+
+        let mut cost_matrix2 = CostMatrix::new(10, 5, CostConfig::default());
+        cost_matrix2.compute(&state2);
+
         for i in 0..state2.edge_count() {
             manager2.failed_edges.insert(EdgeIdx::from(i as u32), Instant::now());
         }
-        assert!(manager2.find_alternative_edges(ChunkId::from(5), EdgeIdx::from(3u32), &state2, &paths).is_none());
+        assert!(manager2.find_alternative_edges(ChunkId::from(5), EdgeIdx::from(3u32), &state2, &paths, &cost_matrix2).is_none());
     }
 
     #[test]
     fn test_performance_decision_latency() {
         let manager = CpuFailoverManager::new(create_test_config());
-        let state = create_test_state(100, 100);
+        let mut state = create_test_state(100, 100);
         let paths = create_test_path_selector();
+        let cost_matrix = create_test_cost_matrix(&mut state, 100, 100);
 
         let start = Instant::now();
         for i in 0..100 {
@@ -882,6 +935,7 @@ mod tests {
                 FailoverReason::TransferFailed,
                 &state,
                 &paths,
+                &cost_matrix,
             );
         }
         let elapsed = start.elapsed();
