@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 description = "QUIC transport and wire protocol for warp"
 
+[features]
+default = []
+insecure-tls = []  # Enable insecure TLS for testing with self-signed certificates
+
 [dependencies]
 quinn.workspace = true
 rustls.workspace = true

@@ -9,7 +9,7 @@ description = "P2P mesh networking for Portal distributed storage"
 [dependencies]
 # Internal crates
 portal-core.workspace = true
-warp-net.workspace = true
+warp-net = { workspace = true, features = ["insecure-tls"] }
 warp-crypto.workspace = true
 
 # mDNS discovery

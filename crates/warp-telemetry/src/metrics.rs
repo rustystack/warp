@@ -147,8 +147,19 @@ impl Histogram {
     pub fn percentile(&self, p: f64) -> f64 {
         let inner = self.inner.read();
         if inner.samples.is_empty() { return 0.0; }
-        let mut sorted = inner.samples.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Filter out NaN values before sorting to prevent unpredictable ordering
+        let mut sorted: Vec<f64> = inner.samples
+            .iter()
+            .copied()
+            .filter(|x| !x.is_nan())
+            .collect();
+
+        if sorted.is_empty() { return 0.0; }
+
+        // Use total_cmp for deterministic ordering (handles infinities correctly)
+        sorted.sort_by(|a, b| a.total_cmp(b));
+
         let index = (p / 100.0 * (sorted.len() - 1) as f64).round() as usize;
         sorted[index.min(sorted.len() - 1)]
     }

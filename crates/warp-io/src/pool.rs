@@ -22,10 +22,10 @@ impl BufferPool {
         let buffer = self
             .buffers
             .lock()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) // Recover from poison
             .pop()
             .unwrap_or_else(|| vec![0u8; self.buffer_size]);
-        
+
         PooledBuffer {
             buffer: Some(buffer),
             pool: self,
@@ -36,7 +36,10 @@ impl BufferPool {
     fn return_buffer(&self, mut buffer: Vec<u8>) {
         buffer.clear();
         buffer.resize(self.buffer_size, 0);
-        self.buffers.lock().unwrap().push(buffer);
+        // If poisoned, just drop the buffer (acceptable for pool)
+        if let Ok(mut guard) = self.buffers.lock() {
+            guard.push(buffer);
+        }
     }
 }
 

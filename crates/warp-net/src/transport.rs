@@ -3,7 +3,9 @@
 use crate::codec::Frame;
 use crate::frames::Capabilities;
 use crate::protocol::{NegotiatedParams, ProtocolState};
-use crate::tls::{client_config_insecure, generate_self_signed, server_config};
+use crate::tls::{client_config, generate_self_signed, server_config};
+#[cfg(any(test, feature = "insecure-tls"))]
+use crate::tls::client_config_insecure;
 use crate::{Error, Result};
 use bytes::BytesMut;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
@@ -331,14 +333,60 @@ pub struct WarpEndpoint {
 }
 
 impl WarpEndpoint {
-    /// Create a client endpoint
+    /// Create a client endpoint (insecure, for testing only)
+    ///
+    /// # Safety
+    ///
+    /// This function creates a client that skips TLS certificate verification.
+    /// It is vulnerable to MITM attacks and should ONLY be used for testing.
+    #[cfg(any(test, feature = "insecure-tls"))]
     pub async fn client() -> Result<Self> {
         Self::client_with_caps(Capabilities::default()).await
     }
 
-    /// Create a client endpoint with custom capabilities
+    /// Create a client endpoint with custom capabilities (insecure, for testing only)
+    ///
+    /// # Safety
+    ///
+    /// This function creates a client that skips TLS certificate verification.
+    /// It is vulnerable to MITM attacks and should ONLY be used for testing.
+    #[cfg(any(test, feature = "insecure-tls"))]
     pub async fn client_with_caps(caps: Capabilities) -> Result<Self> {
         let rustls_config = client_config_insecure()?;
+        let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
+            .map_err(|e| Error::Connection(format!("Failed to create client endpoint: {}", e)))?;
+
+        let quinn_config = quinn::ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(rustls_config)
+                .map_err(|e| Error::Tls(format!("Failed to create QUIC client config: {}", e)))?,
+        ));
+
+        endpoint.set_default_client_config(quinn_config);
+
+        Ok(Self {
+            endpoint,
+            is_server: false,
+            local_caps: caps,
+        })
+    }
+
+    /// Create a secure client endpoint with custom root certificate store
+    ///
+    /// This is the recommended way to create a client for production use.
+    /// Validates server certificates against the provided root store.
+    pub async fn client_secure(roots: rustls::RootCertStore) -> Result<Self> {
+        Self::client_secure_with_caps(roots, Capabilities::default()).await
+    }
+
+    /// Create a secure client endpoint with custom capabilities and root certificate store
+    ///
+    /// This is the recommended way to create a client for production use.
+    /// Validates server certificates against the provided root store.
+    pub async fn client_secure_with_caps(
+        roots: rustls::RootCertStore,
+        caps: Capabilities,
+    ) -> Result<Self> {
+        let rustls_config = client_config(roots)?;
         let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
             .map_err(|e| Error::Connection(format!("Failed to create client endpoint: {}", e)))?;
 

@@ -8,7 +8,7 @@ description = "Core orchestration for warp transfers"
 
 [dependencies]
 warp-format.workspace = true
-warp-net.workspace = true
+warp-net = { workspace = true, features = ["insecure-tls"] }
 warp-compress.workspace = true
 warp-hash.workspace = true
 warp-crypto.workspace = true

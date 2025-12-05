@@ -45,7 +45,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
 };
 use hkdf::Hkdf;
-use rand::RngCore;
+use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 
 /// HKDF context for convergent chunk key derivation
@@ -341,9 +341,9 @@ impl ManifestEncryptor {
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let cipher = ChaCha20Poly1305::new(self.master_key.as_bytes().into());
 
-        // Generate random nonce
+        // Generate random nonce using cryptographically secure RNG
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // Encrypt

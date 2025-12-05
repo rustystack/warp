@@ -43,5 +43,7 @@ pub use codec::Frame;
 pub use frames::{Capabilities, GpuInfo};
 pub use listener::WarpListener;
 pub use protocol::{NegotiatedParams, ProtocolState};
-pub use tls::{client_config, client_config_insecure, generate_self_signed, server_config};
+pub use tls::{client_config, generate_self_signed, server_config};
+#[cfg(any(test, feature = "insecure-tls"))]
+pub use tls::client_config_insecure;
 pub use transport::{WarpConnection, WarpEndpoint};

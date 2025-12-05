@@ -34,7 +34,14 @@ pub fn server_config(
     Ok(config)
 }
 
-/// Create client TLS configuration that skips certificate verification (insecure)
+/// Create client TLS configuration that skips certificate verification
+///
+/// # Safety
+///
+/// This function disables all certificate validation and is vulnerable to MITM attacks.
+/// ONLY use for testing or development with self-signed certificates.
+/// NEVER use in production.
+#[cfg(any(test, feature = "insecure-tls"))]
 pub fn client_config_insecure() -> Result<rustls::ClientConfig> {
     let mut config = rustls::ClientConfig::builder()
         .dangerous()
@@ -82,9 +89,16 @@ pub fn load_private_key(path: &std::path::Path) -> Result<PrivateKeyDer<'static>
 }
 
 /// Certificate verifier that skips verification (for testing/self-signed certs)
+///
+/// # Safety
+///
+/// This verifier accepts ANY certificate without validation.
+/// It is vulnerable to man-in-the-middle attacks and should NEVER be used in production.
+#[cfg(any(test, feature = "insecure-tls"))]
 #[derive(Debug)]
 struct SkipServerVerification;
 
+#[cfg(any(test, feature = "insecure-tls"))]
 impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
         &self,
