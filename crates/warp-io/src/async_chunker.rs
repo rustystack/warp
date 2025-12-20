@@ -1,35 +1,41 @@
-//! Async content-defined chunking using Buzhash with tokio.
+//! Async content-defined chunking using SeqCDC with tokio.
 //!
 //! This module provides async versions of the chunking functionality,
 //! allowing non-blocking I/O operations for better concurrency.
+//!
+//! # Algorithm
+//!
+//! Uses the SeqCDC algorithm which detects chunk boundaries by finding
+//! monotonically increasing/decreasing byte sequences. This is significantly
+//! faster than traditional rolling hash approaches.
 
-use crate::{Chunker, ChunkerConfig, Result};
+use crate::{SeqCdcConfig, SeqMode, Result};
 use std::path::Path;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
-/// Async chunk a file using content-defined chunking.
+/// Async chunk a file using content-defined chunking (SeqCDC).
 ///
-/// This reads the file asynchronously and produces chunks using the Buzhash
+/// This reads the file asynchronously and produces chunks using the SeqCDC
 /// algorithm. Memory usage is bounded to approximately the max chunk size.
 ///
 /// # Example
 /// ```no_run
-/// use warp_io::{chunk_file_async, ChunkerConfig};
+/// use warp_io::{chunk_file_async, SeqCdcConfig};
 ///
 /// # async fn example() -> warp_io::Result<()> {
-/// let chunks = chunk_file_async("/path/to/file", ChunkerConfig::default()).await?;
+/// let chunks = chunk_file_async("/path/to/file", SeqCdcConfig::target_16kb()).await?;
 /// println!("Got {} chunks", chunks.len());
 /// # Ok(())
 /// # }
 /// ```
 pub async fn chunk_file_async(
     path: impl AsRef<Path>,
-    config: ChunkerConfig,
+    config: impl Into<SeqCdcConfig>,
 ) -> Result<Vec<Vec<u8>>> {
     let file = tokio::fs::File::open(path).await?;
-    let chunker = Chunker::new(config);
-    chunk_async_reader(file, &chunker).await
+    let config = config.into();
+    chunk_async_reader(file, config).await
 }
 
 /// Stream chunks through a channel for pipeline processing.
@@ -39,15 +45,15 @@ pub async fn chunk_file_async(
 ///
 /// # Arguments
 /// * `path` - Path to the file
-/// * `config` - Chunker configuration
+/// * `config` - Chunker configuration (SeqCdcConfig or ChunkerConfig)
 /// * `channel_capacity` - Maximum number of chunks to buffer (for backpressure)
 ///
 /// # Example
 /// ```no_run
-/// use warp_io::{chunk_file_stream, ChunkerConfig};
+/// use warp_io::{chunk_file_stream, SeqCdcConfig};
 ///
 /// # async fn example() -> warp_io::Result<()> {
-/// let mut rx = chunk_file_stream("/path/to/file", ChunkerConfig::default(), 16);
+/// let mut rx = chunk_file_stream("/path/to/file", SeqCdcConfig::target_16kb(), 16);
 /// while let Some(result) = rx.recv().await {
 ///     let chunk = result?;
 ///     println!("Received chunk of {} bytes", chunk.len());
@@ -57,11 +63,12 @@ pub async fn chunk_file_async(
 /// ```
 pub fn chunk_file_stream(
     path: impl AsRef<Path> + Send + 'static,
-    config: ChunkerConfig,
+    config: impl Into<SeqCdcConfig> + Send + 'static,
     channel_capacity: usize,
 ) -> mpsc::Receiver<Result<Vec<u8>>> {
     let (tx, rx) = mpsc::channel(channel_capacity);
     let path = path.as_ref().to_path_buf();
+    let config = config.into();
 
     tokio::spawn(async move {
         let result = stream_chunks_to_channel(path, config, tx.clone()).await;
@@ -74,24 +81,23 @@ pub fn chunk_file_stream(
     rx
 }
 
-/// Internal function to stream chunks to a channel.
+/// Internal function to stream chunks to a channel using SeqCDC.
 async fn stream_chunks_to_channel(
     path: impl AsRef<Path>,
-    config: ChunkerConfig,
+    config: SeqCdcConfig,
     tx: mpsc::Sender<Result<Vec<u8>>>,
 ) -> Result<()> {
     let file = tokio::fs::File::open(path).await?;
-    let chunker = Chunker::new(config.clone());
-
     let mut reader = file;
-    let mut buffer = vec![0u8; config.max_size];
-    let mut current_chunk = Vec::new();
-    let mut hash = 0u64;
-    let mut window = Vec::with_capacity(config.window_size);
+    let mut buffer = vec![0u8; 64 * 1024]; // 64KB read buffer
+    let mut current_chunk = Vec::with_capacity(config.target_size);
 
-    // Calculate mask (same as sync chunker)
-    let bits = (config.target_size as f64).log2() as u32;
-    let mask = (1u64 << bits) - 1;
+    // Window for boundary detection
+    let mut window: Vec<u8> = Vec::with_capacity(config.seq_length);
+
+    // Content-based skipping state
+    let mut opposing_count = 0usize;
+    let mut skip_remaining = 0usize;
 
     loop {
         let n = reader.read(&mut buffer).await?;
@@ -99,30 +105,67 @@ async fn stream_chunks_to_channel(
             break;
         }
 
-        for &byte in &buffer[..n] {
-            // Update rolling hash
-            if window.len() >= config.window_size {
-                let old_byte = window.remove(0);
-                hash ^= chunker.table()[old_byte as usize]
-                    .rotate_left(config.window_size as u32);
+        let mut i = 0;
+        while i < n {
+            let byte = buffer[i];
+
+            // Handle skip mode
+            if skip_remaining > 0 {
+                current_chunk.push(byte);
+                skip_remaining -= 1;
+                i += 1;
+
+                if skip_remaining == 0 {
+                    window.clear();
+                    opposing_count = 0;
+                }
+                continue;
             }
+
+            // Track opposing pairs for skip heuristic
+            if let Some(&prev) = window.last() {
+                let is_opposing = match config.mode {
+                    SeqMode::Increasing => prev >= byte,
+                    SeqMode::Decreasing => prev <= byte,
+                };
+                if is_opposing {
+                    opposing_count += 1;
+                } else {
+                    opposing_count = 0;
+                }
+            }
+
+            // Update window
             window.push(byte);
-            hash = hash.rotate_left(1) ^ chunker.table()[byte as usize];
+            if window.len() > config.seq_length {
+                window.remove(0);
+            }
 
             current_chunk.push(byte);
+            i += 1;
 
-            // Check for chunk boundary
             let size = current_chunk.len();
-            if size >= config.min_size
-                && ((hash & mask) == 0 || size >= config.max_size)
-            {
-                let chunk = std::mem::take(&mut current_chunk);
-                if tx.send(Ok(chunk)).await.is_err() {
-                    // Receiver dropped, stop processing
-                    return Ok(());
+
+            // Check for boundary after minimum size
+            if size >= config.min_size {
+                let at_boundary = is_monotonic_boundary(&window, &config) || size >= config.max_size;
+
+                if at_boundary {
+                    let chunk = std::mem::take(&mut current_chunk);
+                    if tx.send(Ok(chunk)).await.is_err() {
+                        // Receiver dropped, stop processing
+                        return Ok(());
+                    }
+                    current_chunk = Vec::with_capacity(config.target_size);
+                    window.clear();
+                    opposing_count = 0;
                 }
-                hash = 0;
-                window.clear();
+            }
+
+            // Trigger skip if in unfavorable region
+            if opposing_count >= config.skip_trigger && size < config.min_size {
+                skip_remaining = config.skip_size.min(config.min_size - size);
+                opposing_count = 0;
             }
         }
     }
@@ -135,21 +178,37 @@ async fn stream_chunks_to_channel(
     Ok(())
 }
 
-/// Async chunk from any AsyncRead source.
-async fn chunk_async_reader<R>(mut reader: R, chunker: &Chunker) -> Result<Vec<Vec<u8>>>
+/// Check if window ends with a monotonic sequence (SeqCDC boundary detection)
+#[inline]
+fn is_monotonic_boundary(window: &[u8], config: &SeqCdcConfig) -> bool {
+    if window.len() < config.seq_length {
+        return false;
+    }
+
+    let start = window.len() - config.seq_length;
+    let seq = &window[start..];
+
+    match config.mode {
+        SeqMode::Increasing => seq.windows(2).all(|w| w[0] < w[1]),
+        SeqMode::Decreasing => seq.windows(2).all(|w| w[0] > w[1]),
+    }
+}
+
+/// Async chunk from any AsyncRead source using SeqCDC.
+async fn chunk_async_reader<R>(mut reader: R, config: SeqCdcConfig) -> Result<Vec<Vec<u8>>>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
-    let config = chunker.config();
     let mut chunks = Vec::new();
-    let mut buffer = vec![0u8; config.max_size];
-    let mut current_chunk = Vec::new();
-    let mut hash = 0u64;
-    let mut window = Vec::with_capacity(config.window_size);
+    let mut buffer = vec![0u8; 64 * 1024];
+    let mut current_chunk = Vec::with_capacity(config.target_size);
 
-    // Calculate mask
-    let bits = (config.target_size as f64).log2() as u32;
-    let mask = (1u64 << bits) - 1;
+    // Window for boundary detection
+    let mut window: Vec<u8> = Vec::with_capacity(config.seq_length);
+
+    // Content-based skipping state
+    let mut opposing_count = 0usize;
+    let mut skip_remaining = 0usize;
 
     loop {
         let n = reader.read(&mut buffer).await?;
@@ -157,26 +216,63 @@ where
             break;
         }
 
-        for &byte in &buffer[..n] {
-            // Update rolling hash
-            if window.len() >= config.window_size {
-                let old_byte = window.remove(0);
-                hash ^= chunker.table()[old_byte as usize]
-                    .rotate_left(config.window_size as u32);
+        let mut i = 0;
+        while i < n {
+            let byte = buffer[i];
+
+            // Handle skip mode
+            if skip_remaining > 0 {
+                current_chunk.push(byte);
+                skip_remaining -= 1;
+                i += 1;
+
+                if skip_remaining == 0 {
+                    window.clear();
+                    opposing_count = 0;
+                }
+                continue;
             }
+
+            // Track opposing pairs for skip heuristic
+            if let Some(&prev) = window.last() {
+                let is_opposing = match config.mode {
+                    SeqMode::Increasing => prev >= byte,
+                    SeqMode::Decreasing => prev <= byte,
+                };
+                if is_opposing {
+                    opposing_count += 1;
+                } else {
+                    opposing_count = 0;
+                }
+            }
+
+            // Update window
             window.push(byte);
-            hash = hash.rotate_left(1) ^ chunker.table()[byte as usize];
+            if window.len() > config.seq_length {
+                window.remove(0);
+            }
 
             current_chunk.push(byte);
+            i += 1;
 
-            // Check for chunk boundary
             let size = current_chunk.len();
-            if size >= config.min_size
-                && ((hash & mask) == 0 || size >= config.max_size)
-            {
-                chunks.push(std::mem::take(&mut current_chunk));
-                hash = 0;
-                window.clear();
+
+            // Check for boundary after minimum size
+            if size >= config.min_size {
+                let at_boundary = is_monotonic_boundary(&window, &config) || size >= config.max_size;
+
+                if at_boundary {
+                    chunks.push(std::mem::take(&mut current_chunk));
+                    current_chunk = Vec::with_capacity(config.target_size);
+                    window.clear();
+                    opposing_count = 0;
+                }
+            }
+
+            // Trigger skip if in unfavorable region
+            if opposing_count >= config.skip_trigger && size < config.min_size {
+                skip_remaining = config.skip_size.min(config.min_size - size);
+                opposing_count = 0;
             }
         }
     }
@@ -189,15 +285,43 @@ where
     Ok(chunks)
 }
 
+// Note: From<ChunkerConfig> for SeqCdcConfig is implemented in chunker.rs
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ChunkerConfig;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    /// Test 1: async_chunk produces same chunks as sync chunker
+    /// Test 1: async_chunk works with SeqCdcConfig
     #[tokio::test]
-    async fn test_async_matches_sync() {
+    async fn test_async_seqcdc() {
+        let mut file = NamedTempFile::new().unwrap();
+        let data: Vec<u8> = (0..50_000).map(|i| (i % 256) as u8).collect();
+        file.write_all(&data).unwrap();
+        file.flush().unwrap();
+
+        let config = SeqCdcConfig {
+            min_size: 1024,
+            target_size: 4096,
+            max_size: 8192,
+            seq_length: 3,
+            skip_trigger: 20,
+            skip_size: 128,
+            mode: SeqMode::Increasing,
+        };
+
+        let chunks = chunk_file_async(file.path(), config).await.unwrap();
+
+        // Verify all data is accounted for
+        let total: usize = chunks.iter().map(|c| c.len()).sum();
+        assert_eq!(total, data.len());
+    }
+
+    /// Test 2: async_chunk with legacy ChunkerConfig (backward compat)
+    #[tokio::test]
+    async fn test_async_legacy_config() {
         let mut file = NamedTempFile::new().unwrap();
         let data: Vec<u8> = (0..50_000).map(|i| (i % 256) as u8).collect();
         file.write_all(&data).unwrap();
@@ -207,40 +331,7 @@ mod tests {
             min_size: 1024,
             target_size: 4096,
             max_size: 8192,
-            window_size: 32,
-        };
-
-        // Sync chunking
-        let sync_chunker = Chunker::new(config.clone());
-        let sync_chunks = sync_chunker
-            .chunk(std::io::Cursor::new(&data))
-            .unwrap();
-
-        // Async chunking
-        let async_chunks = chunk_file_async(file.path(), config).await.unwrap();
-
-        // Should produce same number of chunks
-        assert_eq!(async_chunks.len(), sync_chunks.len());
-
-        // Each chunk should be identical
-        for (async_chunk, sync_chunk) in async_chunks.iter().zip(sync_chunks.iter()) {
-            assert_eq!(async_chunk, sync_chunk);
-        }
-    }
-
-    /// Test 2: async_chunk works with tokio::fs::File
-    #[tokio::test]
-    async fn test_async_with_file() {
-        let mut file = NamedTempFile::new().unwrap();
-        let data = b"test data for async chunking";
-        file.write_all(data).unwrap();
-        file.flush().unwrap();
-
-        let config = ChunkerConfig {
-            min_size: 8,
-            target_size: 16,
-            max_size: 32,
-            window_size: 4,
+            window_size: 32, // Ignored in SeqCDC
         };
 
         let chunks = chunk_file_async(file.path(), config).await.unwrap();
@@ -258,11 +349,14 @@ mod tests {
         file.write_all(&data).unwrap();
         file.flush().unwrap();
 
-        let config = ChunkerConfig {
+        let config = SeqCdcConfig {
             min_size: 1024,
             target_size: 4096,
             max_size: 8192,
-            window_size: 32,
+            seq_length: 3,
+            skip_trigger: 20,
+            skip_size: 128,
+            mode: SeqMode::Increasing,
         };
 
         let chunks = chunk_file_async(file.path(), config.clone()).await.unwrap();
@@ -296,13 +390,7 @@ mod tests {
         file.write_all(&data).unwrap();
         file.flush().unwrap();
 
-        let config = ChunkerConfig {
-            min_size: 1024,
-            target_size: 4096,
-            max_size: 8192,
-            window_size: 32,
-        };
-
+        let config = SeqCdcConfig::target_8kb();
         let mut rx = chunk_file_stream(file.path().to_path_buf(), config, 16);
 
         let mut chunks = Vec::new();
@@ -320,7 +408,7 @@ mod tests {
     async fn test_async_empty_file() {
         let file = NamedTempFile::new().unwrap();
 
-        let chunks = chunk_file_async(file.path(), ChunkerConfig::default())
+        let chunks = chunk_file_async(file.path(), SeqCdcConfig::default())
             .await
             .unwrap();
 
@@ -335,11 +423,11 @@ mod tests {
         file.write_all(data).unwrap();
         file.flush().unwrap();
 
-        let config = ChunkerConfig {
+        let config = SeqCdcConfig {
             min_size: 1024,
             target_size: 4096,
             max_size: 8192,
-            window_size: 32,
+            ..Default::default()
         };
 
         let chunks = chunk_file_async(file.path(), config).await.unwrap();
@@ -362,12 +450,7 @@ mod tests {
             })
             .collect();
 
-        let config = ChunkerConfig {
-            min_size: 512,
-            target_size: 2048,
-            max_size: 4096,
-            window_size: 16,
-        };
+        let config = SeqCdcConfig::target_4kb();
 
         // Chunk all files concurrently using JoinSet
         let mut set = tokio::task::JoinSet::new();
@@ -399,12 +482,7 @@ mod tests {
         file.write_all(&data).unwrap();
         file.flush().unwrap();
 
-        let config = ChunkerConfig {
-            min_size: 1024,
-            target_size: 4096,
-            max_size: 8192,
-            window_size: 32,
-        };
+        let config = SeqCdcConfig::target_8kb();
 
         // Very small channel capacity to test backpressure
         let mut rx = chunk_file_stream(file.path().to_path_buf(), config, 2);
@@ -430,7 +508,7 @@ mod tests {
     /// Test 9: non-existent file returns error
     #[tokio::test]
     async fn test_async_file_not_found() {
-        let result = chunk_file_async("/nonexistent/path", ChunkerConfig::default()).await;
+        let result = chunk_file_async("/nonexistent/path", SeqCdcConfig::default()).await;
         assert!(result.is_err());
     }
 
@@ -439,12 +517,33 @@ mod tests {
     async fn test_stream_file_not_found() {
         let mut rx = chunk_file_stream(
             "/nonexistent/path".to_string(),
-            ChunkerConfig::default(),
+            SeqCdcConfig::default(),
             16,
         );
 
         let result = rx.recv().await;
         assert!(result.is_some());
         assert!(result.unwrap().is_err());
+    }
+
+    /// Test 11: SeqCDC config presets work with async
+    #[tokio::test]
+    async fn test_async_config_presets() {
+        let mut file = NamedTempFile::new().unwrap();
+        let data: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
+        file.write_all(&data).unwrap();
+        file.flush().unwrap();
+
+        // Test various presets
+        for config in [
+            SeqCdcConfig::target_4kb(),
+            SeqCdcConfig::target_8kb(),
+            SeqCdcConfig::target_16kb(),
+            SeqCdcConfig::target_64kb(),
+        ] {
+            let chunks = chunk_file_async(file.path(), config).await.unwrap();
+            let total: usize = chunks.iter().map(|c| c.len()).sum();
+            assert_eq!(total, data.len());
+        }
     }
 }

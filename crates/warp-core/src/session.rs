@@ -212,10 +212,10 @@ impl Session {
 }
 
 fn generate_session_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(Duration::ZERO)
         .as_nanos();
     format!("{:x}", now)
 }

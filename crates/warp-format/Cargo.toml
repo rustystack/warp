@@ -21,3 +21,5 @@ warp-crypto.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 proptest.workspace = true
+warp-net.workspace = true
+bytes.workspace = true

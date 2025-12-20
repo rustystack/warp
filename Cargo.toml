@@ -29,6 +29,11 @@ edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/warp"
+homepage = "https://github.com/yourusername/warp"
+documentation = "https://docs.rs/warp-core"
+readme = "README.md"
+keywords = ["transfer", "compression", "encryption", "merkle", "gpu"]
+categories = ["command-line-utilities", "network-programming", "cryptography"]
 authors = ["Your Name <your@email.com>"]
 
 [workspace.dependencies]

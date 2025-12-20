@@ -27,3 +27,18 @@ tempfile.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
+
+[[example]]
+name = "basic_chunking"
+
+[[example]]
+name = "compress_encrypt"
+
+[[example]]
+name = "full_pipeline"
+
+[[example]]
+name = "archive_roundtrip"
+
+[[example]]
+name = "parallel_hashing"

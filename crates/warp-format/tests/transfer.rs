@@ -172,25 +172,121 @@ fn test_transfer_error_handling() {
 
 #[test]
 fn test_network_protocol_compatibility() {
-    // Basic test to ensure protocol structures are well-formed
-    // This doesn't require actual network connectivity
+    use bytes::BytesMut;
+    use warp_net::codec::Frame;
+    use warp_net::frames::Capabilities;
 
-    // Example: Verify that we can serialize/deserialize transfer metadata
-    // In a real implementation, this would test:
-    // - Protocol version compatibility
-    // - Metadata serialization
-    // - Header format validation
+    // Test Hello frame round-trip
+    let hello = Frame::Hello { version: 1 };
+    let mut buf = BytesMut::new();
+    hello.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Hello { version } => assert_eq!(version, 1),
+        _ => panic!("Expected Hello frame"),
+    }
 
-    println!("Network protocol compatibility test (basic validation)");
+    // Test Capabilities frame round-trip
+    let caps = Capabilities {
+        node_id: "test-node-001".to_string(),
+        hostname: "localhost".to_string(),
+        cpu_cores: 8,
+        gpu: None,
+        compression: vec!["zstd".to_string(), "lz4".to_string()],
+        hashes: vec!["blake3".to_string()],
+        max_chunk_size: 64 * 1024 * 1024,
+        max_streams: 16,
+        supports_dedup: true,
+        supports_encryption: true,
+    };
+    let caps_frame = Frame::Capabilities(caps.clone());
+    let mut buf = BytesMut::new();
+    caps_frame.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Capabilities(decoded_caps) => {
+            assert_eq!(decoded_caps.node_id, caps.node_id);
+            assert_eq!(decoded_caps.hostname, caps.hostname);
+            assert_eq!(decoded_caps.cpu_cores, caps.cpu_cores);
+            assert_eq!(decoded_caps.compression, caps.compression);
+            assert_eq!(decoded_caps.supports_dedup, caps.supports_dedup);
+        }
+        _ => panic!("Expected Capabilities frame"),
+    }
 
-    // This is a placeholder test that always passes
-    // In a complete implementation, you would:
-    // 1. Create transfer metadata structures
-    // 2. Serialize them
-    // 3. Deserialize them
-    // 4. Verify they match
+    // Test Plan frame round-trip
+    let plan = Frame::Plan {
+        total_size: 1_000_000_000,
+        num_chunks: 1000,
+        chunk_size: 1_000_000,
+        metadata: vec![1, 2, 3, 4, 5],
+    };
+    let mut buf = BytesMut::new();
+    plan.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Plan { total_size, num_chunks, chunk_size, metadata } => {
+            assert_eq!(total_size, 1_000_000_000);
+            assert_eq!(num_chunks, 1000);
+            assert_eq!(chunk_size, 1_000_000);
+            assert_eq!(metadata, vec![1, 2, 3, 4, 5]);
+        }
+        _ => panic!("Expected Plan frame"),
+    }
 
-    assert!(true, "Protocol structures are well-formed");
+    // Test Verify frame round-trip (Merkle root)
+    let merkle_root = [0xABu8; 32];
+    let verify = Frame::Verify { merkle_root };
+    let mut buf = BytesMut::new();
+    verify.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Verify { merkle_root: decoded_root } => {
+            assert_eq!(decoded_root, merkle_root);
+        }
+        _ => panic!("Expected Verify frame"),
+    }
+
+    // Test Chunk frame round-trip
+    let chunk_data = vec![0u8; 1024];
+    let chunk = Frame::Chunk { chunk_id: 42, data: chunk_data.clone() };
+    let mut buf = BytesMut::new();
+    chunk.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Chunk { chunk_id, data } => {
+            assert_eq!(chunk_id, 42);
+            assert_eq!(data, chunk_data);
+        }
+        _ => panic!("Expected Chunk frame"),
+    }
+
+    // Test Ack/Nack frames
+    let ack = Frame::Ack { chunk_ids: vec![1, 2, 3, 4, 5] };
+    let mut buf = BytesMut::new();
+    ack.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Ack { chunk_ids } => assert_eq!(chunk_ids, vec![1, 2, 3, 4, 5]),
+        _ => panic!("Expected Ack frame"),
+    }
+
+    let nack = Frame::Nack {
+        chunk_ids: vec![6, 7],
+        reason: "Checksum mismatch".to_string()
+    };
+    let mut buf = BytesMut::new();
+    nack.encode(&mut buf).unwrap();
+    let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        Frame::Nack { chunk_ids, reason } => {
+            assert_eq!(chunk_ids, vec![6, 7]);
+            assert_eq!(reason, "Checksum mismatch");
+        }
+        _ => panic!("Expected Nack frame"),
+    }
+
+    println!("All protocol frame types validated successfully");
 }
 
 #[test]
