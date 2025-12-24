@@ -208,7 +208,8 @@ impl Orchestrator {
         }
 
         // Generate transfer ID
-        let transfer_id = TransferId::new(self.next_transfer_id.fetch_add(1, Ordering::SeqCst));
+        // Relaxed is sufficient for ID generation - we only need atomicity, not synchronization
+        let transfer_id = TransferId::new(self.next_transfer_id.fetch_add(1, Ordering::Relaxed));
         let created_at_ms = current_time_ms();
 
         // Create chunk transfers
@@ -286,7 +287,8 @@ impl Orchestrator {
         }
 
         // Generate transfer ID
-        let transfer_id = TransferId::new(self.next_transfer_id.fetch_add(1, Ordering::SeqCst));
+        // Relaxed is sufficient for ID generation - we only need atomicity, not synchronization
+        let transfer_id = TransferId::new(self.next_transfer_id.fetch_add(1, Ordering::Relaxed));
         let created_at_ms = current_time_ms();
 
         // Create chunk transfers
@@ -381,49 +383,51 @@ impl Orchestrator {
     }
 
     async fn tick_downloads(&self) -> Result<Vec<TransferResult>> {
-        let mut completed = Vec::new();
-        let downloads = self.active_downloads.read();
-        let download_ids: Vec<TransferId> = downloads.keys().copied().collect();
-        drop(downloads);
-
-        for transfer_id in download_ids {
-            let should_complete = {
-                let downloads = self.active_downloads.read();
-                if let Some(session) = downloads.get(&transfer_id) {
-                    // Simulate download progress
+        // Optimized: Single read lock to identify completed transfers
+        let completed_ids: Vec<TransferId> = {
+            let downloads = self.active_downloads.read();
+            downloads.iter()
+                .filter(|(_, session)| {
                     let is_started = session.state.status.is_active();
                     let is_complete = session.state.completed_chunks >= session.state.total_chunks;
                     is_complete || !is_started
-                } else {
-                    false
+                })
+                .map(|(id, _)| *id)
+                .collect()
+        };
+
+        if completed_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Single write lock to process all completed transfers
+        let mut completed = Vec::with_capacity(completed_ids.len());
+        let mut downloads = self.active_downloads.write();
+        let now = current_time_ms();
+
+        for transfer_id in completed_ids {
+            if let Some(mut session) = downloads.remove(&transfer_id) {
+                if session.state.status != TransferStatus::Active {
+                    session.state.start(now);
+                    self.progress.start(transfer_id);
                 }
-            };
 
-            if should_complete {
-                let mut downloads = self.active_downloads.write();
-                if let Some(mut session) = downloads.remove(&transfer_id) {
-                    if session.state.status != TransferStatus::Active {
-                        session.state.start(current_time_ms());
-                        self.progress.start(transfer_id);
+                // Mark all chunks as completed
+                for chunk in &mut session.state.chunk_states {
+                    if chunk.status != TransferStatus::Completed {
+                        chunk.bytes_transferred = chunk.chunk_size as u64;
+                        chunk.status = TransferStatus::Completed;
                     }
-
-                    // Mark all chunks as completed
-                    for chunk in &mut session.state.chunk_states {
-                        if chunk.status != TransferStatus::Completed {
-                            chunk.bytes_transferred = chunk.chunk_size as u64;
-                            chunk.status = TransferStatus::Completed;
-                        }
-                    }
-                    session.state.update_progress();
-
-                    if session.state.completed_chunks == session.state.total_chunks {
-                        session.state.complete(current_time_ms());
-                        self.progress.complete(transfer_id);
-                    }
-
-                    let result = TransferResult::from_state(&session.state, current_time_ms());
-                    completed.push(result);
                 }
+                session.state.update_progress();
+
+                if session.state.completed_chunks == session.state.total_chunks {
+                    session.state.complete(now);
+                    self.progress.complete(transfer_id);
+                }
+
+                let result = TransferResult::from_state(&session.state, now);
+                completed.push(result);
             }
         }
 
@@ -431,57 +435,54 @@ impl Orchestrator {
     }
 
     async fn tick_uploads(&self) -> Result<Vec<TransferResult>> {
-        let mut completed = Vec::new();
-        let uploads = self.active_uploads.read();
-        let upload_ids: Vec<TransferId> = uploads.keys().copied().collect();
-        drop(uploads);
-
-        for transfer_id in upload_ids {
-            let should_complete = {
-                let uploads = self.active_uploads.read();
-                if let Some(session) = uploads.get(&transfer_id) {
+        // Optimized: Single read lock to identify completed transfers
+        let completed_ids: Vec<TransferId> = {
+            let uploads = self.active_uploads.read();
+            uploads.iter()
+                .filter(|(_, session)| {
                     // Check if all chunk data is queued
-                    let all_data_ready = session
-                        .request
-                        .chunks
-                        .iter()
-                        .all(|hash| session.chunk_data.contains_key(&ChunkId::from_hash(hash)));
+                    session.request.chunks.iter()
+                        .all(|hash| session.chunk_data.contains_key(&ChunkId::from_hash(hash)))
+                })
+                .map(|(id, _)| *id)
+                .collect()
+        };
 
-                    // Only complete if all data is ready
-                    all_data_ready
-                } else {
-                    false
+        if completed_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Single write lock to process all completed transfers
+        let mut completed = Vec::with_capacity(completed_ids.len());
+        let mut uploads = self.active_uploads.write();
+        let now = current_time_ms();
+
+        for transfer_id in completed_ids {
+            if let Some(mut session) = uploads.remove(&transfer_id) {
+                if session.state.status != TransferStatus::Active {
+                    session.state.start(now);
+                    self.progress.start(transfer_id);
                 }
-            };
 
-            if should_complete {
-                let mut uploads = self.active_uploads.write();
-                if let Some(mut session) = uploads.remove(&transfer_id) {
-                    if session.state.status != TransferStatus::Active {
-                        session.state.start(current_time_ms());
-                        self.progress.start(transfer_id);
+                // Mark all chunks with data as completed
+                for chunk in &mut session.state.chunk_states {
+                    let chunk_id = ChunkId::from_hash(&chunk.chunk_hash);
+                    if session.chunk_data.contains_key(&chunk_id)
+                        && chunk.status != TransferStatus::Completed
+                    {
+                        chunk.bytes_transferred = chunk.chunk_size as u64;
+                        chunk.status = TransferStatus::Completed;
                     }
-
-                    // Mark all chunks with data as completed
-                    for chunk in &mut session.state.chunk_states {
-                        let chunk_id = ChunkId::from_hash(&chunk.chunk_hash);
-                        if session.chunk_data.contains_key(&chunk_id)
-                            && chunk.status != TransferStatus::Completed
-                        {
-                            chunk.bytes_transferred = chunk.chunk_size as u64;
-                            chunk.status = TransferStatus::Completed;
-                        }
-                    }
-                    session.state.update_progress();
-
-                    if session.state.completed_chunks == session.state.total_chunks {
-                        session.state.complete(current_time_ms());
-                        self.progress.complete(transfer_id);
-                    }
-
-                    let result = TransferResult::from_state(&session.state, current_time_ms());
-                    completed.push(result);
                 }
+                session.state.update_progress();
+
+                if session.state.completed_chunks == session.state.total_chunks {
+                    session.state.complete(now);
+                    self.progress.complete(transfer_id);
+                }
+
+                let result = TransferResult::from_state(&session.state, now);
+                completed.push(result);
             }
         }
 

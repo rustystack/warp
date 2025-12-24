@@ -1,6 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput, BenchmarkId};
-use warp_io::{BuzhashChunker, SeqCdcChunker, SeqCdcConfig, ChunkerConfig};
+use warp_io::{BuzhashChunker, SeqCdcChunker, SeqCdcConfig, ChunkerConfig, chunk_file_async};
 use std::io::Cursor;
+use std::io::Write;
+use tempfile::NamedTempFile;
 
 /// Generate pseudo-random test data with configurable patterns
 fn generate_test_data(size: usize, pattern: DataPattern) -> Vec<u8> {
@@ -293,6 +295,83 @@ fn bench_comparison(c: &mut Criterion) {
     group.finish();
 }
 
+// ============================================================================
+// ASYNC CHUNKER BENCHMARKS (VecDeque optimization)
+// ============================================================================
+
+fn bench_async_chunker(c: &mut Criterion) {
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+    let mut group = c.benchmark_group("async-chunker");
+
+    let sizes = [
+        (1 * 1024 * 1024, "1MB"),
+        (10 * 1024 * 1024, "10MB"),
+        (50 * 1024 * 1024, "50MB"),
+    ];
+
+    for (size, name) in sizes {
+        let data = generate_test_data(size, DataPattern::PseudoRandom);
+        group.throughput(Throughput::Bytes(size as u64));
+
+        // Create temp file for async chunking
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(&data).unwrap();
+        file.flush().unwrap();
+        let path = file.path().to_path_buf();
+
+        let config = SeqCdcConfig::target_16kb();
+        group.bench_with_input(BenchmarkId::new("chunk", name), &path, |b, path| {
+            b.iter(|| {
+                rt.block_on(async {
+                    chunk_file_async(black_box(path), config.clone()).await.unwrap()
+                })
+            })
+        });
+    }
+
+    group.finish();
+}
+
+// ============================================================================
+// ASYNC VS SYNC COMPARISON
+// ============================================================================
+
+fn bench_async_vs_sync(c: &mut Criterion) {
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+    let mut group = c.benchmark_group("async-vs-sync");
+    let size = 10 * 1024 * 1024; // 10MB
+    let data = generate_test_data(size, DataPattern::PseudoRandom);
+
+    group.throughput(Throughput::Bytes(size as u64));
+
+    // Sync chunking (SIMD)
+    let chunker = SeqCdcChunker::new(SeqCdcConfig::target_16kb());
+    group.bench_with_input(BenchmarkId::new("method", "sync-simd"), &data, |b, data| {
+        b.iter(|| chunker.chunk_simd(Cursor::new(black_box(data))))
+    });
+
+    // Async chunking (uses VecDeque optimization)
+    let mut file = NamedTempFile::new().unwrap();
+    file.write_all(&data).unwrap();
+    file.flush().unwrap();
+    let path = file.path().to_path_buf();
+    let config = SeqCdcConfig::target_16kb();
+
+    group.bench_with_input(BenchmarkId::new("method", "async-vecdeque"), &path, |b, path| {
+        b.iter(|| {
+            rt.block_on(async {
+                chunk_file_async(black_box(path), config.clone()).await.unwrap()
+            })
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_buzhash,
@@ -302,5 +381,7 @@ criterion_group!(
     bench_data_patterns,
     bench_chunk_sizes,
     bench_comparison,
+    bench_async_chunker,
+    bench_async_vs_sync,
 );
 criterion_main!(benches);

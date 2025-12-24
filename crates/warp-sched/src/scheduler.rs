@@ -89,6 +89,8 @@ pub struct CpuChunkScheduler {
     current_assignments: Vec<Assignment>,
     /// Index for O(1) assignment lookups by chunk_hash
     assignment_index: HashMap<[u8; 32], usize>,
+    /// Reverse index for O(1) ChunkId to chunk_hash lookups
+    chunk_id_index: HashMap<ChunkId, [u8; 32]>,
 }
 
 impl CpuChunkScheduler {
@@ -122,6 +124,7 @@ impl CpuChunkScheduler {
             reopt_step: 0,
             current_assignments: Vec::new(),
             assignment_index: HashMap::new(),
+            chunk_id_index: HashMap::new(),
         }
     }
 
@@ -241,11 +244,10 @@ impl CpuChunkScheduler {
         Some(assignment)
     }
 
-    /// Find chunk hash by ChunkId.
+    /// Find chunk hash by ChunkId - O(1) via reverse index.
+    #[inline]
     fn find_chunk_hash(&self, chunk_id: ChunkId) -> Option<[u8; 32]> {
-        self.current_assignments.iter()
-            .find(|a| ChunkId::from_hash(&a.chunk_hash) == chunk_id)
-            .map(|a| a.chunk_hash)
+        self.chunk_id_index.get(&chunk_id).copied()
     }
 
     /// Schedules chunks for assignment.
@@ -320,9 +322,11 @@ impl CpuChunkScheduler {
                             estimated_duration_ms: 100,
                         };
                         assignments.push(assignment.clone());
-                        // Track for reoptimization - add to index for O(1) lookups
+                        // Track for reoptimization - add to indices for O(1) lookups
                         let idx = self.current_assignments.len();
+                        let chunk_id = ChunkId::from_hash(&assignment.chunk_hash);
                         self.assignment_index.insert(assignment.chunk_hash, idx);
+                        self.chunk_id_index.insert(chunk_id, assignment.chunk_hash);
                         self.current_assignments.push(assignment);
                     }
                 }
