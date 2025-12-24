@@ -14,20 +14,27 @@ use std::time::{Duration, SystemTime};
 ///
 /// Tracks upload/download bandwidth using exponential moving average (EMA).
 /// All bandwidth values are in bytes per second.
+///
+/// Field ordering optimized for cache efficiency:
+/// - HOT fields (bandwidth values, sample_count) are first
+/// - COLD fields (peaks, timestamp) are last with SystemTime at the end (16 bytes)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BandwidthMetrics {
+    // === HOT: Read on every bandwidth estimate ===
     /// Upload bandwidth in bytes/sec (EMA)
     pub upload_bps: f64,
     /// Download bandwidth in bytes/sec (EMA)
     pub download_bps: f64,
-    /// Last time metrics were updated
-    pub last_updated: SystemTime,
     /// Number of samples recorded
     pub sample_count: u64,
+
+    // === COLD: Statistics and timestamps ===
     /// Peak upload bandwidth observed
     pub peak_upload: f64,
     /// Peak download bandwidth observed
     pub peak_download: f64,
+    /// Last time metrics were updated (16 bytes - placed last)
+    pub last_updated: SystemTime,
 }
 
 /// Bandwidth estimator with EMA smoothing
@@ -61,6 +68,8 @@ impl BandwidthEstimator {
         }
 
         let sample_bps = bytes as f64 / duration_secs;
+        // Cache timestamp before lock to avoid syscall inside critical section
+        let now = SystemTime::now();
 
         self.metrics
             .entry(edge)
@@ -68,15 +77,17 @@ impl BandwidthEstimator {
                 m.upload_bps = self.alpha * sample_bps + (1.0 - self.alpha) * m.upload_bps;
                 m.peak_upload = m.peak_upload.max(sample_bps);
                 m.sample_count = m.sample_count.saturating_add(1);
-                m.last_updated = SystemTime::now();
+                m.last_updated = now;
             })
             .or_insert_with(|| BandwidthMetrics {
+                // HOT
                 upload_bps: sample_bps,
                 download_bps: 0.0,
-                last_updated: SystemTime::now(),
                 sample_count: 1,
+                // COLD
                 peak_upload: sample_bps,
                 peak_download: 0.0,
+                last_updated: now,
             });
     }
 
@@ -88,6 +99,8 @@ impl BandwidthEstimator {
         }
 
         let sample_bps = bytes as f64 / duration_secs;
+        // Cache timestamp before lock to avoid syscall inside critical section
+        let now = SystemTime::now();
 
         self.metrics
             .entry(edge)
@@ -95,15 +108,17 @@ impl BandwidthEstimator {
                 m.download_bps = self.alpha * sample_bps + (1.0 - self.alpha) * m.download_bps;
                 m.peak_download = m.peak_download.max(sample_bps);
                 m.sample_count = m.sample_count.saturating_add(1);
-                m.last_updated = SystemTime::now();
+                m.last_updated = now;
             })
             .or_insert_with(|| BandwidthMetrics {
+                // HOT
                 upload_bps: 0.0,
                 download_bps: sample_bps,
-                last_updated: SystemTime::now(),
                 sample_count: 1,
+                // COLD
                 peak_upload: 0.0,
                 peak_download: sample_bps,
+                last_updated: now,
             });
     }
 
@@ -139,22 +154,32 @@ impl BandwidthEstimator {
 }
 
 /// RTT metrics for a single edge using RFC 6298 TCP-style estimation
+///
+/// Field ordering optimized for cache efficiency:
+/// - HOT fields (SRTT, RTTVAR, sample_count) are first - used in RFC 6298 calculations
+/// - WARM fields (RTO - derived value) are next
+/// - COLD fields (min/max, timestamp) are last with SystemTime at the end (16 bytes)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RttMetrics {
+    // === HOT: Used in RFC 6298 calculations ===
     /// Smoothed RTT in microseconds
     pub srtt_us: u64,
     /// RTT variance in microseconds
     pub rttvar_us: u64,
+    /// Number of RTT samples
+    pub sample_count: u64,
+
+    // === WARM: Derived timeout value ===
     /// Recommended timeout (RTO)
     pub rto: Duration,
+
+    // === COLD: Statistics and timestamps ===
     /// Minimum RTT observed (microseconds)
     pub min_rtt_us: u64,
     /// Maximum RTT observed (microseconds)
     pub max_rtt_us: u64,
-    /// Last update timestamp
+    /// Last update timestamp (16 bytes - placed last)
     pub last_updated: SystemTime,
-    /// Number of RTT samples
-    pub sample_count: u64,
 }
 
 /// RTT estimator using RFC 6298 algorithm (alpha=1/8, beta=1/4, RTO=SRTT+4*RTTVAR)
@@ -201,13 +226,16 @@ impl RttEstimator {
                 let rttvar_us = rtt_us / 2;
                 let rto_us = rtt_us + 4 * rttvar_us;
                 RttMetrics {
+                    // HOT
                     srtt_us: rtt_us,
                     rttvar_us,
+                    sample_count: 1,
+                    // WARM
                     rto: Duration::from_micros(rto_us),
+                    // COLD
                     min_rtt_us: rtt_us,
                     max_rtt_us: rtt_us,
                     last_updated: SystemTime::now(),
-                    sample_count: 1,
                 }
             });
     }
@@ -702,12 +730,14 @@ mod tests {
     #[test]
     fn test_bandwidth_metrics_serialize() {
         let metrics = BandwidthMetrics {
+            // HOT
             upload_bps: 1_000_000.0,
             download_bps: 5_000_000.0,
-            last_updated: SystemTime::now(),
             sample_count: 10,
+            // COLD
             peak_upload: 1_500_000.0,
             peak_download: 6_000_000.0,
+            last_updated: SystemTime::now(),
         };
 
         let json = serde_json::to_string(&metrics).unwrap();
@@ -721,13 +751,16 @@ mod tests {
     #[test]
     fn test_rtt_metrics_serialize() {
         let metrics = RttMetrics {
+            // HOT
             srtt_us: 50_000,
             rttvar_us: 10_000,
+            sample_count: 5,
+            // WARM
             rto: Duration::from_millis(90),
+            // COLD
             min_rtt_us: 40_000,
             max_rtt_us: 60_000,
             last_updated: SystemTime::now(),
-            sample_count: 5,
         };
 
         let json = serde_json::to_string(&metrics).unwrap();

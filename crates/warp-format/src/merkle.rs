@@ -5,7 +5,7 @@
 //! - `SparseMerkleTree`: Lazy tree with caching for large archives (millions of chunks)
 
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::RwLock;
 
 /// Merkle tree for content verification
@@ -154,8 +154,9 @@ struct NodeCache {
     nodes: HashMap<(usize, usize), [u8; 32]>,
     /// Maximum number of entries to cache
     max_size: usize,
-    /// Access order for LRU eviction (most recent at end)
-    access_order: Vec<(usize, usize)>,
+    /// Access order for LRU eviction (front = LRU, back = MRU)
+    /// Using VecDeque for O(1) pop_front during eviction
+    access_order: VecDeque<(usize, usize)>,
 }
 
 impl NodeCache {
@@ -164,17 +165,18 @@ impl NodeCache {
         Self {
             nodes: HashMap::with_capacity(max_size),
             max_size,
-            access_order: Vec::with_capacity(max_size),
+            access_order: VecDeque::with_capacity(max_size),
         }
     }
 
     /// Get a node from cache, updating access order
     fn get(&mut self, key: &(usize, usize)) -> Option<[u8; 32]> {
         if let Some(&hash) = self.nodes.get(key) {
-            // Move to end of access order (most recently used)
+            // Move to back of access order (most recently used)
+            // VecDeque::remove is O(n) but shifts from closer end
             if let Some(pos) = self.access_order.iter().position(|k| k == key) {
                 self.access_order.remove(pos);
-                self.access_order.push(*key);
+                self.access_order.push_back(*key);
             }
             Some(hash)
         } else {
@@ -186,24 +188,25 @@ impl NodeCache {
     fn insert(&mut self, key: (usize, usize), hash: [u8; 32]) {
         // Check if already present
         if self.nodes.contains_key(&key) {
-            // Update and move to end
+            // Update and move to back
             self.nodes.insert(key, hash);
             if let Some(pos) = self.access_order.iter().position(|k| *k == key) {
                 self.access_order.remove(pos);
             }
-            self.access_order.push(key);
+            self.access_order.push_back(key);
             return;
         }
 
-        // Evict LRU if at capacity
+        // Evict LRU if at capacity - O(1) with VecDeque
         while self.nodes.len() >= self.max_size && !self.access_order.is_empty() {
-            let lru_key = self.access_order.remove(0);
-            self.nodes.remove(&lru_key);
+            if let Some(lru_key) = self.access_order.pop_front() {
+                self.nodes.remove(&lru_key);
+            }
         }
 
         // Insert new entry
         self.nodes.insert(key, hash);
-        self.access_order.push(key);
+        self.access_order.push_back(key);
     }
 
     /// Get cache hit statistics

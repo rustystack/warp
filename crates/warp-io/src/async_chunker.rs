@@ -10,6 +10,7 @@
 //! faster than traditional rolling hash approaches.
 
 use crate::{SeqCdcConfig, SeqMode, Result};
+use std::collections::VecDeque;
 use std::path::Path;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
@@ -92,8 +93,8 @@ async fn stream_chunks_to_channel(
     let mut buffer = vec![0u8; 64 * 1024]; // 64KB read buffer
     let mut current_chunk = Vec::with_capacity(config.target_size);
 
-    // Window for boundary detection
-    let mut window: Vec<u8> = Vec::with_capacity(config.seq_length);
+    // Window for boundary detection - use VecDeque for O(1) pop_front
+    let mut window: VecDeque<u8> = VecDeque::with_capacity(config.seq_length + 1);
 
     // Content-based skipping state
     let mut opposing_count = 0usize;
@@ -123,7 +124,7 @@ async fn stream_chunks_to_channel(
             }
 
             // Track opposing pairs for skip heuristic
-            if let Some(&prev) = window.last() {
+            if let Some(&prev) = window.back() {
                 let is_opposing = match config.mode {
                     SeqMode::Increasing => prev >= byte,
                     SeqMode::Decreasing => prev <= byte,
@@ -135,10 +136,10 @@ async fn stream_chunks_to_channel(
                 }
             }
 
-            // Update window
-            window.push(byte);
+            // Update window - O(1) operations with VecDeque
+            window.push_back(byte);
             if window.len() > config.seq_length {
-                window.remove(0);
+                window.pop_front();
             }
 
             current_chunk.push(byte);
@@ -180,17 +181,37 @@ async fn stream_chunks_to_channel(
 
 /// Check if window ends with a monotonic sequence (SeqCDC boundary detection)
 #[inline]
-fn is_monotonic_boundary(window: &[u8], config: &SeqCdcConfig) -> bool {
+fn is_monotonic_boundary(window: &VecDeque<u8>, config: &SeqCdcConfig) -> bool {
     if window.len() < config.seq_length {
         return false;
     }
 
+    // Check last seq_length bytes for monotonic pattern
     let start = window.len() - config.seq_length;
-    let seq = &window[start..];
 
     match config.mode {
-        SeqMode::Increasing => seq.windows(2).all(|w| w[0] < w[1]),
-        SeqMode::Decreasing => seq.windows(2).all(|w| w[0] > w[1]),
+        SeqMode::Increasing => {
+            let mut prev = window[start];
+            for i in (start + 1)..window.len() {
+                let curr = window[i];
+                if prev >= curr {
+                    return false;
+                }
+                prev = curr;
+            }
+            true
+        }
+        SeqMode::Decreasing => {
+            let mut prev = window[start];
+            for i in (start + 1)..window.len() {
+                let curr = window[i];
+                if prev <= curr {
+                    return false;
+                }
+                prev = curr;
+            }
+            true
+        }
     }
 }
 
@@ -203,8 +224,8 @@ where
     let mut buffer = vec![0u8; 64 * 1024];
     let mut current_chunk = Vec::with_capacity(config.target_size);
 
-    // Window for boundary detection
-    let mut window: Vec<u8> = Vec::with_capacity(config.seq_length);
+    // Window for boundary detection - use VecDeque for O(1) pop_front
+    let mut window: VecDeque<u8> = VecDeque::with_capacity(config.seq_length + 1);
 
     // Content-based skipping state
     let mut opposing_count = 0usize;
@@ -234,7 +255,7 @@ where
             }
 
             // Track opposing pairs for skip heuristic
-            if let Some(&prev) = window.last() {
+            if let Some(&prev) = window.back() {
                 let is_opposing = match config.mode {
                     SeqMode::Increasing => prev >= byte,
                     SeqMode::Decreasing => prev <= byte,
@@ -246,10 +267,10 @@ where
                 }
             }
 
-            // Update window
-            window.push(byte);
+            // Update window - O(1) operations with VecDeque
+            window.push_back(byte);
             if window.len() > config.seq_length {
-                window.remove(0);
+                window.pop_front();
             }
 
             current_chunk.push(byte);

@@ -434,14 +434,13 @@ impl ConnectionPoolInner {
     }
 
     async fn acquire_connection(&self, edge_idx: EdgeIdx) -> Result<u64> {
-        // Try to find an idle connection first (O(1) via index)
-        if let Some(conn_id) = self.find_idle_connection(edge_idx) {
+        // Try to pop an idle connection first - O(1) atomic find+remove
+        while let Some(conn_id) = self.pop_idle_connection(edge_idx) {
             if let Some(mut conn) = self.connections.get_mut(&conn_id) {
                 conn.mark_used();
-                // Remove from idle index since it's now in use
-                self.remove_from_idle_index(edge_idx, conn_id);
                 return Ok(conn_id);
             }
+            // Connection was removed from connections map, try next idle
         }
 
         // Need to create a new connection - acquire semaphores
@@ -477,13 +476,14 @@ impl ConnectionPoolInner {
     }
 
     /// Find an idle connection for the given edge (hot path - O(1) via index)
-    /// Uses idle_connections index to avoid O(n) loop scanning (mechanical sympathy)
+    /// Pop an idle connection from the index - O(1) operation (mechanical sympathy)
+    /// Returns and removes the most recent idle connection for the edge.
     #[inline]
-    fn find_idle_connection(&self, edge_idx: EdgeIdx) -> Option<u64> {
-        // O(1) lookup via idle connections index
+    fn pop_idle_connection(&self, edge_idx: EdgeIdx) -> Option<u64> {
+        // O(1) pop from the end - combines find + remove atomically
         self.idle_connections
-            .get(&edge_idx)
-            .and_then(|ids| ids.last().copied())
+            .get_mut(&edge_idx)
+            .and_then(|mut ids| ids.pop())
     }
 
     /// Add connection to the idle index (called when connection becomes idle)
@@ -495,11 +495,15 @@ impl ConnectionPoolInner {
             .push(conn_id);
     }
 
-    /// Remove connection from the idle index (called when connection is acquired)
+    /// Remove a specific connection from the idle index
+    /// Only needed when a connection is closed/invalidated while idle
     #[inline]
     fn remove_from_idle_index(&self, edge_idx: EdgeIdx, conn_id: u64) {
         if let Some(mut ids) = self.idle_connections.get_mut(&edge_idx) {
-            ids.retain(|&id| id != conn_id);
+            // Use swap_remove for O(1) - order doesn't matter for idle pool
+            if let Some(pos) = ids.iter().position(|&id| id == conn_id) {
+                ids.swap_remove(pos);
+            }
         }
     }
 
