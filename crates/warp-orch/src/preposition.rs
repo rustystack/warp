@@ -406,7 +406,8 @@ impl PrepositionPlanner {
                 PrepositionPriority::Low
             };
 
-            let op_id = self.next_op_id.fetch_add(1, Ordering::SeqCst);
+            // Relaxed is sufficient for ID generation
+            let op_id = self.next_op_id.fetch_add(1, Ordering::Relaxed);
             ops.push(PrepositionOp::new(
                 op_id,
                 chunk_id,
@@ -574,7 +575,8 @@ impl PrepositionExecutor {
             };
 
             // Start the operation
-            let transfer_id = TransferId::new(self.next_transfer_id.fetch_add(1, Ordering::SeqCst));
+            // Relaxed is sufficient for ID generation
+            let transfer_id = TransferId::new(self.next_transfer_id.fetch_add(1, Ordering::Relaxed));
             let status = PrepositionStatus::InProgress {
                 transfer_id,
                 bytes_transferred: 0,

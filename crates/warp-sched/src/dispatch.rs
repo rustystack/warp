@@ -111,10 +111,12 @@ impl DispatchQueue {
     /// ```
     pub fn write_assignments(&self, assignments: Vec<Assignment>) -> u64 {
         // Increment generation first
-        let generation_num = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        // Relaxed: generation is an independent monotonic counter
+        let generation_num = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
 
         // Determine which buffer to write to (opposite of active)
-        let active = self.active_buffer.load(Ordering::SeqCst);
+        // Acquire: synchronize with Release in swap_buffers to see consistent state
+        let active = self.active_buffer.load(Ordering::Acquire);
         let write_buffer = if active == 0 {
             &self.back_buffer
         } else {
@@ -148,9 +150,11 @@ impl DispatchQueue {
     /// ```
     pub fn swap_buffers(&self) {
         // Atomically swap the active buffer
-        let current = self.active_buffer.load(Ordering::SeqCst);
+        // Acquire: see current buffer state
+        let current = self.active_buffer.load(Ordering::Acquire);
         let new = if current == 0 { 1 } else { 0 };
-        self.active_buffer.store(new, Ordering::SeqCst);
+        // Release: publish buffer contents to readers
+        self.active_buffer.store(new, Ordering::Release);
 
         // Notify any waiting consumers
         self.notify.notify_waiters();
@@ -170,7 +174,8 @@ impl DispatchQueue {
     /// assert!(batch.is_empty());
     /// ```
     pub fn read_assignments(&self) -> AssignmentBatch {
-        let active = self.active_buffer.load(Ordering::SeqCst);
+        // Acquire: synchronize with Release in swap_buffers
+        let active = self.active_buffer.load(Ordering::Acquire);
         let read_buffer = if active == 0 {
             &self.front_buffer
         } else {
@@ -178,7 +183,8 @@ impl DispatchQueue {
         };
 
         let buffer = read_buffer.lock();
-        let generation = self.generation.load(Ordering::SeqCst);
+        // Relaxed: generation is informational, doesn't need synchronization
+        let generation = self.generation.load(Ordering::Relaxed);
 
         AssignmentBatch::new(buffer.clone(), generation)
     }
@@ -257,7 +263,8 @@ impl DispatchQueue {
     /// assert_eq!(queue.generation(), 1);
     /// ```
     pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::SeqCst)
+        // Relaxed: generation is an independent monotonic counter
+        self.generation.load(Ordering::Relaxed)
     }
 
     /// Get the number of pending assignments in the active buffer
@@ -284,7 +291,8 @@ impl DispatchQueue {
     /// assert_eq!(queue.pending_count(), 1);
     /// ```
     pub fn pending_count(&self) -> usize {
-        let active = self.active_buffer.load(Ordering::SeqCst);
+        // Acquire: synchronize with Release in swap_buffers
+        let active = self.active_buffer.load(Ordering::Acquire);
         let read_buffer = if active == 0 {
             &self.front_buffer
         } else {
