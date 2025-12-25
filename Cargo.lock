@@ -4249,6 +4249,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "warp-store-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "chrono",
+ "hex",
+ "hmac",
+ "hyper",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "warp-store",
+]
+
+[[package]]
 name = "warp-stream"
 version = "0.1.0"
 dependencies = [

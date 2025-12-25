@@ -1,0 +1,49 @@
+[package]
+name = "warp-store-api"
+description = "HTTP API server for warp-store with S3 compatibility"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+portal = ["warp-store/portal"]
+
+[dependencies]
+# Core
+warp-store = { workspace = true }
+
+# Web framework
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+hyper = { version = "1.4", features = ["server", "http1", "http2"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = "1.0"
+
+# Cryptography for S3 signature
+hmac = "0.12"
+sha2 = "0.10"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Utilities
+bytes = { workspace = true }
+tracing = { workspace = true }
+hex = "0.4"
+percent-encoding = "2.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+reqwest = { version = "0.12", features = ["json"] }
