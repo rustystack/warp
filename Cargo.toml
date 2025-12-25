@@ -22,6 +22,7 @@ members = [
     "crates/warp-config",
     "crates/warp-api",
     "crates/warp-dashboard",
+    "crates/warp-store",
 ]
 
 [workspace.package]
@@ -59,6 +60,7 @@ warp-telemetry = { path = "crates/warp-telemetry" }
 warp-config = { path = "crates/warp-config" }
 warp-api = { path = "crates/warp-api" }
 warp-dashboard = { path = "crates/warp-dashboard" }
+warp-store = { path = "crates/warp-store" }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }

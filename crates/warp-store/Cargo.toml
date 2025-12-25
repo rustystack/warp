@@ -1,0 +1,66 @@
+[package]
+name = "warp-store"
+description = "Next-generation HPC object storage - modern S3 replacement with RDMA, GPUDirect, and ephemeral URLs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["local"]
+local = []
+portal = ["portal-hub", "portal-core"]
+parcode = []
+gpu = ["warp-gpu"]
+full = ["local", "portal", "parcode", "gpu"]
+
+[dependencies]
+# Core warp crates
+warp-core = { workspace = true }
+warp-hash = { workspace = true }
+warp-crypto = { workspace = true }
+warp-ec = { workspace = true }
+
+# Optional integrations
+warp-gpu = { workspace = true, optional = true }
+portal-hub = { workspace = true, optional = true }
+portal-core = { workspace = true, optional = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Cryptography for ephemeral tokens
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+rmp-serde = { workspace = true }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# IP network for access restrictions
+ipnet = { version = "2.9", features = ["serde"] }
+
+# Concurrent data structures
+dashmap = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Hashing
+blake3 = { workspace = true }
+
+# Utilities
+bytes = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1"
+base64 = "0.22"
+serde_bytes = "0.11"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tempfile = { workspace = true }
+proptest = { workspace = true }
