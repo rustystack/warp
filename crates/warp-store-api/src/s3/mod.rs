@@ -25,23 +25,29 @@ use crate::AppState;
 #[cfg(feature = "s3-select")]
 mod select;
 
+mod acl;
+mod cors;
 mod encryption;
 mod lifecycle;
 mod notifications;
 mod object_lock;
 mod policy;
 mod replication;
+mod tagging;
 mod versioning;
 
 #[cfg(feature = "s3-select")]
 pub use select::{SelectObjectContentRequest, SelectQuery};
 
+pub use acl::{AccessControlPolicy, AccessControlPolicyXml};
+pub use cors::CorsConfigurationXml;
 pub use encryption::ServerSideEncryptionConfigurationXml;
 pub use lifecycle::{LifecycleConfigurationXml, LifecycleQuery};
 pub use notifications::NotificationConfigurationXml;
 pub use object_lock::{ObjectLockConfigurationXml, RetentionXml, LegalHoldXml};
 pub use policy::{BucketPolicyManager, PolicyDocument, get_s3_action};
 pub use replication::ReplicationConfigurationXml;
+pub use tagging::TaggingXml;
 pub use versioning::VersioningConfigurationXml;
 
 /// Create S3 API routes
@@ -90,6 +96,10 @@ async fn list_buckets<B: StorageBackend>(
 /// Query parameters for bucket PUT operations
 #[derive(Debug, Deserialize, Default)]
 struct BucketPutQuery {
+    /// ACL query parameter (presence indicates ACL request)
+    acl: Option<String>,
+    /// CORS query parameter (presence indicates CORS request)
+    cors: Option<String>,
     /// Lifecycle query parameter (presence indicates lifecycle request)
     lifecycle: Option<String>,
     /// Notification query parameter (presence indicates notification request)
@@ -99,6 +109,8 @@ struct BucketPutQuery {
     /// Object Lock query parameter (presence indicates object-lock request)
     #[serde(rename = "object-lock")]
     object_lock: Option<String>,
+    /// Tagging query parameter (presence indicates tagging request)
+    tagging: Option<String>,
     /// Versioning query parameter (presence indicates versioning request)
     versioning: Option<String>,
     /// Encryption query parameter (presence indicates encryption request)
@@ -112,8 +124,19 @@ async fn create_bucket<B: StorageBackend>(
     State(state): State<AppState<B>>,
     Path(bucket): Path<String>,
     Query(query): Query<BucketPutQuery>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Response> {
+    // Check if this is an ACL request
+    if query.acl.is_some() {
+        return acl::put_bucket_acl(State(state), Path(bucket), headers, body).await;
+    }
+
+    // Check if this is a CORS request
+    if query.cors.is_some() {
+        return cors::put_cors(State(state), Path(bucket), body).await;
+    }
+
     // Check if this is a lifecycle request
     if query.lifecycle.is_some() {
         return lifecycle::put_lifecycle(State(state), Path(bucket), body).await;
@@ -132,6 +155,11 @@ async fn create_bucket<B: StorageBackend>(
     // Check if this is an object-lock request
     if query.object_lock.is_some() {
         return object_lock::put_object_lock_config(State(state), Path(bucket), body).await;
+    }
+
+    // Check if this is a tagging request
+    if query.tagging.is_some() {
+        return tagging::put_bucket_tagging(State(state), Path(bucket), body).await;
     }
 
     // Check if this is a versioning request
@@ -161,12 +189,16 @@ async fn create_bucket<B: StorageBackend>(
 /// Query parameters for bucket DELETE operations
 #[derive(Debug, Deserialize, Default)]
 struct BucketDeleteQuery {
+    /// CORS query parameter (presence indicates CORS request)
+    cors: Option<String>,
     /// Lifecycle query parameter (presence indicates lifecycle request)
     lifecycle: Option<String>,
     /// Notification query parameter (presence indicates notification request)
     notification: Option<String>,
     /// Policy query parameter (presence indicates policy request)
     policy: Option<String>,
+    /// Tagging query parameter (presence indicates tagging request)
+    tagging: Option<String>,
     /// Encryption query parameter (presence indicates encryption request)
     encryption: Option<String>,
     /// Replication query parameter (presence indicates replication request)
@@ -179,6 +211,11 @@ async fn delete_bucket<B: StorageBackend>(
     Path(bucket): Path<String>,
     Query(query): Query<BucketDeleteQuery>,
 ) -> ApiResult<Response> {
+    // Check if this is a CORS request
+    if query.cors.is_some() {
+        return cors::delete_cors(State(state), Path(bucket)).await;
+    }
+
     // Check if this is a lifecycle request
     if query.lifecycle.is_some() {
         return lifecycle::delete_lifecycle(State(state), Path(bucket)).await;
@@ -192,6 +229,11 @@ async fn delete_bucket<B: StorageBackend>(
     // Check if this is a policy request
     if query.policy.is_some() {
         return policy::delete_policy(State(state), Path(bucket)).await;
+    }
+
+    // Check if this is a tagging request
+    if query.tagging.is_some() {
+        return tagging::delete_bucket_tagging(State(state), Path(bucket)).await;
     }
 
     // Check if this is an encryption request
@@ -221,6 +263,10 @@ struct ListObjectsQuery {
     #[serde(rename = "list-type")]
     #[allow(dead_code)]
     list_type: Option<String>,
+    /// ACL query parameter (presence indicates ACL request)
+    acl: Option<String>,
+    /// CORS query parameter (presence indicates CORS request)
+    cors: Option<String>,
     /// Lifecycle query parameter (presence indicates lifecycle request)
     lifecycle: Option<String>,
     /// Notification query parameter (presence indicates notification request)
@@ -229,6 +275,8 @@ struct ListObjectsQuery {
     policy: Option<String>,
     /// Object Lock query parameter (presence indicates object-lock request)
     object_lock: Option<String>,
+    /// Tagging query parameter (presence indicates tagging request)
+    tagging: Option<String>,
     /// Versioning query parameter (presence indicates versioning request)
     versioning: Option<String>,
     /// Encryption query parameter (presence indicates encryption request)
@@ -243,6 +291,16 @@ async fn list_objects<B: StorageBackend>(
     Path(bucket): Path<String>,
     Query(query): Query<ListObjectsQuery>,
 ) -> ApiResult<Response> {
+    // Check if this is an ACL request
+    if query.acl.is_some() {
+        return acl::get_bucket_acl(State(state), Path(bucket)).await;
+    }
+
+    // Check if this is a CORS request
+    if query.cors.is_some() {
+        return cors::get_cors(State(state), Path(bucket)).await;
+    }
+
     // Check if this is a lifecycle request
     if query.lifecycle.is_some() {
         return lifecycle::get_lifecycle(State(state), Path(bucket)).await;
@@ -261,6 +319,11 @@ async fn list_objects<B: StorageBackend>(
     // Check if this is an object-lock request
     if query.object_lock.is_some() {
         return object_lock::get_object_lock_config(State(state), Path(bucket)).await;
+    }
+
+    // Check if this is a tagging request
+    if query.tagging.is_some() {
+        return tagging::get_bucket_tagging(State(state), Path(bucket)).await;
     }
 
     // Check if this is a versioning request
@@ -347,10 +410,14 @@ async fn list_objects<B: StorageBackend>(
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 struct ObjectGetQuery {
+    /// ACL query parameter (presence indicates ACL request)
+    acl: Option<String>,
     /// Retention query parameter (presence indicates retention request)
     retention: Option<String>,
     /// Legal hold query parameter (presence indicates legal-hold request)
     legal_hold: Option<String>,
+    /// Tagging query parameter (presence indicates tagging request)
+    tagging: Option<String>,
     /// Version ID for versioned objects
     #[serde(rename = "versionId")]
     version_id: Option<String>,
@@ -362,6 +429,11 @@ async fn get_object<B: StorageBackend>(
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<ObjectGetQuery>,
 ) -> ApiResult<Response> {
+    // Check if this is an ACL request
+    if query.acl.is_some() {
+        return acl::get_object_acl(State(state), Path((bucket, key))).await;
+    }
+
     // Check if this is a retention request
     if query.retention.is_some() {
         let lock_query = object_lock::ObjectLockQuery {
@@ -376,6 +448,11 @@ async fn get_object<B: StorageBackend>(
             version_id: query.version_id,
         };
         return object_lock::get_legal_hold(State(state), Path((bucket, key)), Query(lock_query)).await;
+    }
+
+    // Check if this is a tagging request
+    if query.tagging.is_some() {
+        return tagging::get_object_tagging(State(state), Path((bucket, key))).await;
     }
 
     let object_key = ObjectKey::new(&bucket, &key)?;
@@ -438,10 +515,14 @@ struct MultipartQuery {
     #[cfg(feature = "s3-select")]
     #[serde(rename = "select-type")]
     select_type: Option<String>,
+    /// ACL query parameter (presence indicates ACL request)
+    acl: Option<String>,
     /// Retention query parameter (presence indicates retention request)
     retention: Option<String>,
     /// Legal hold query parameter (presence indicates legal-hold request)
     legal_hold: Option<String>,
+    /// Tagging query parameter (presence indicates tagging request)
+    tagging: Option<String>,
     /// Version ID for versioned objects
     #[serde(rename = "versionId")]
     version_id: Option<String>,
@@ -455,6 +536,11 @@ async fn put_or_upload_part<B: StorageBackend>(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Response> {
+    // Check if this is an ACL request
+    if query.acl.is_some() {
+        return acl::put_object_acl(State(state), Path((bucket, key)), headers, body).await;
+    }
+
     // Check if this is a retention request
     if query.retention.is_some() {
         let lock_query = object_lock::ObjectLockQuery {
@@ -469,6 +555,11 @@ async fn put_or_upload_part<B: StorageBackend>(
             version_id: query.version_id,
         };
         return object_lock::put_legal_hold(State(state), Path((bucket, key)), Query(lock_query), body).await;
+    }
+
+    // Check if this is a tagging request
+    if query.tagging.is_some() {
+        return tagging::put_object_tagging(State(state), Path((bucket, key)), body).await;
     }
 
     // Check if this is a part upload
@@ -544,6 +635,11 @@ async fn delete_or_abort<B: StorageBackend>(
     Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<MultipartQuery>,
 ) -> ApiResult<Response> {
+    // Check if this is a tagging request
+    if query.tagging.is_some() {
+        return tagging::delete_object_tagging(State(state), Path((bucket, key))).await;
+    }
+
     // Check if this is an abort multipart
     if let Some(upload_id) = query.upload_id {
         return abort_multipart_handler(&state, &bucket, &key, &upload_id).await;

@@ -221,6 +221,24 @@ impl BucketPolicyManager {
     pub fn has_policy(&self, bucket: &str) -> bool {
         self.policies.contains_key(bucket)
     }
+
+    /// List all buckets with policies and their statement counts
+    pub fn list(&self) -> Vec<(String, usize)> {
+        self.policies
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().statement.len()))
+            .collect()
+    }
+
+    /// Get the number of policies
+    pub fn len(&self) -> usize {
+        self.policies.len()
+    }
+
+    /// Check if there are no policies
+    pub fn is_empty(&self) -> bool {
+        self.policies.is_empty()
+    }
 }
 
 impl Default for BucketPolicyManager {

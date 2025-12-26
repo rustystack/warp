@@ -42,6 +42,7 @@
 
 #![warn(missing_docs)]
 
+pub mod admin;
 pub mod auth;
 pub mod error;
 pub mod native;
@@ -63,7 +64,7 @@ use tracing::info;
 
 use warp_store::{Store, MetricsCollector};
 use warp_store::backend::{StorageBackend, MultipartUpload, PartInfo};
-use warp_store::bucket::{EncryptionConfig, LifecycleRule, ReplicationConfig};
+use warp_store::bucket::{CorsConfig, EncryptionConfig, LifecycleRule, ReplicationConfig};
 use warp_store::events::NotificationConfiguration;
 use warp_store::object_lock::ObjectLockManager;
 use warp_store::version::VersioningMode;
@@ -158,6 +159,21 @@ pub struct AppState<B: StorageBackend> {
     /// Replication configurations per bucket (bucket_name -> ReplicationConfig)
     pub replication_configs: Arc<DashMap<String, ReplicationConfig>>,
 
+    /// CORS configurations per bucket (bucket_name -> CorsConfig)
+    pub cors_configs: Arc<DashMap<String, CorsConfig>>,
+
+    /// Bucket tags (bucket_name -> Vec<(key, value)>)
+    pub bucket_tags: Arc<DashMap<String, Vec<(String, String)>>>,
+
+    /// Object tags ((bucket_name, key) -> Vec<(key, value)>)
+    pub object_tags: Arc<DashMap<(String, String), Vec<(String, String)>>>,
+
+    /// Bucket ACLs (bucket_name -> AccessControlPolicy)
+    pub bucket_acls: Arc<DashMap<String, s3::AccessControlPolicy>>,
+
+    /// Object ACLs ((bucket_name, key) -> AccessControlPolicy)
+    pub object_acls: Arc<DashMap<(String, String), s3::AccessControlPolicy>>,
+
     /// IAM managers for authentication and authorization
     #[cfg(feature = "iam")]
     pub iam: Option<Arc<IamManagers>>,
@@ -178,6 +194,11 @@ impl<B: StorageBackend> Clone for AppState<B> {
             versioning_configs: Arc::clone(&self.versioning_configs),
             encryption_configs: Arc::clone(&self.encryption_configs),
             replication_configs: Arc::clone(&self.replication_configs),
+            cors_configs: Arc::clone(&self.cors_configs),
+            bucket_tags: Arc::clone(&self.bucket_tags),
+            object_tags: Arc::clone(&self.object_tags),
+            bucket_acls: Arc::clone(&self.bucket_acls),
+            object_acls: Arc::clone(&self.object_acls),
             #[cfg(feature = "iam")]
             iam: self.iam.clone(),
         }
@@ -286,6 +307,11 @@ impl ApiServer<warp_store::backend::LocalBackend> {
                 versioning_configs: Arc::new(DashMap::new()),
                 encryption_configs: Arc::new(DashMap::new()),
                 replication_configs: Arc::new(DashMap::new()),
+                cors_configs: Arc::new(DashMap::new()),
+                bucket_tags: Arc::new(DashMap::new()),
+                object_tags: Arc::new(DashMap::new()),
+                bucket_acls: Arc::new(DashMap::new()),
+                object_acls: Arc::new(DashMap::new()),
                 #[cfg(feature = "iam")]
                 iam,
             },
@@ -317,6 +343,11 @@ impl<B: StorageBackend> ApiServer<B> {
                 versioning_configs: Arc::new(DashMap::new()),
                 encryption_configs: Arc::new(DashMap::new()),
                 replication_configs: Arc::new(DashMap::new()),
+                cors_configs: Arc::new(DashMap::new()),
+                bucket_tags: Arc::new(DashMap::new()),
+                object_tags: Arc::new(DashMap::new()),
+                bucket_acls: Arc::new(DashMap::new()),
+                object_acls: Arc::new(DashMap::new()),
                 #[cfg(feature = "iam")]
                 iam,
             },
@@ -346,6 +377,11 @@ impl<B: StorageBackend> ApiServer<B> {
                 versioning_configs: Arc::new(DashMap::new()),
                 encryption_configs: Arc::new(DashMap::new()),
                 replication_configs: Arc::new(DashMap::new()),
+                cors_configs: Arc::new(DashMap::new()),
+                bucket_tags: Arc::new(DashMap::new()),
+                object_tags: Arc::new(DashMap::new()),
+                bucket_acls: Arc::new(DashMap::new()),
+                object_acls: Arc::new(DashMap::new()),
                 #[cfg(feature = "iam")]
                 iam,
             },
@@ -365,6 +401,9 @@ impl<B: StorageBackend> ApiServer<B> {
         if self.state.config.enable_native {
             router = router.merge(native::routes(self.state.clone()));
         }
+
+        // Add admin API routes
+        router = router.merge(admin::routes(self.state.clone()));
 
         // Add IAM middleware if enabled
         #[cfg(feature = "iam")]
