@@ -17,7 +17,9 @@ pub mod scheduler;
 pub mod session;
 
 pub use analyzer::{analyze_payload, CompressionHint, PayloadAnalysis};
-pub use engine::{ProgressCallback, TransferConfig, TransferEngine, TransferProgress};
+pub use engine::{ProgressCallback, TransferConfig, TransferEngine, TransferProgress, VerificationMode};
+// Re-export ErasureConfig for convenience
+pub use warp_ec::ErasureConfig;
 pub use pipeline::TransferPipeline;
 pub use scheduler::ChunkScheduler;
 pub use session::{Session, SessionState};

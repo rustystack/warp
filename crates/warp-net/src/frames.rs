@@ -8,30 +8,51 @@ use serde::{Deserialize, Serialize};
 /// Frame type identifiers
 pub mod frame_type {
     // Handshake
+    /// HELLO frame - protocol version exchange
     pub const HELLO: u8 = 0x01;
+    /// CAPABILITIES frame - node capability negotiation
     pub const CAPABILITIES: u8 = 0x02;
+    /// PLAN frame - transfer plan details
     pub const PLAN: u8 = 0x03;
+    /// ACCEPT frame - accept transfer plan
     pub const ACCEPT: u8 = 0x04;
-    
+
     // Deduplication
+    /// HAVE frame - chunk IDs sender already has
     pub const HAVE: u8 = 0x05;
+    /// WANT frame - chunk IDs sender wants
     pub const WANT: u8 = 0x06;
-    
+
     // Data transfer
+    /// METADATA frame - file/object metadata
     pub const METADATA: u8 = 0x10;
+    /// CHUNK frame - single chunk data
     pub const CHUNK: u8 = 0x11;
+    /// CHUNK_BATCH frame - batch of chunks
     pub const CHUNK_BATCH: u8 = 0x12;
+    /// END_OF_DATA frame - end of data stream
     pub const END_OF_DATA: u8 = 0x13;
-    
+    /// SHARD frame - erasure-coded shard data
+    pub const SHARD: u8 = 0x14;
+
     // Acknowledgment
+    /// ACK frame - acknowledge received chunks
     pub const ACK: u8 = 0x20;
+    /// NACK frame - negative acknowledgment
     pub const NACK: u8 = 0x21;
-    
+
     // Control
+    /// DONE frame - transfer complete
     pub const DONE: u8 = 0x30;
+    /// VERIFY frame - final merkle root verification
     pub const VERIFY: u8 = 0x31;
+    /// CHUNK_VERIFY frame - per-chunk merkle proof verification
+    pub const CHUNK_VERIFY: u8 = 0x32;
+    /// ERROR frame - error occurred
     pub const ERROR: u8 = 0x40;
+    /// CANCEL frame - cancel transfer
     pub const CANCEL: u8 = 0x41;
+    /// PAUSE frame - pause transfer
     pub const PAUSE: u8 = 0x42;
 }
 

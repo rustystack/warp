@@ -10,6 +10,20 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 /// Maximum frame payload size (16MB)
 const MAX_PAYLOAD_SIZE: u32 = 16 * 1024 * 1024;
 
+/// Wire-format Merkle proof for per-chunk verification
+///
+/// This is the network serialization format for Merkle proofs.
+/// Compatible with `warp_format::MerkleProof` but doesn't require the dependency.
+#[derive(Debug, Clone)]
+pub struct WireMerkleProof {
+    /// Sibling hashes from leaf to root (each 32 bytes)
+    pub siblings: Vec<[u8; 32]>,
+    /// Index of the leaf being proven
+    pub leaf_index: u32,
+    /// Direction bits packed as bytes (1 bit per level, LSB first)
+    pub directions: Vec<u8>,
+}
+
 /// A complete frame with header and payload
 #[derive(Debug, Clone)]
 pub enum Frame {
@@ -55,6 +69,17 @@ pub enum Frame {
         /// Multiple chunks with (chunk_id, data) pairs (zero-copy)
         chunks: Vec<(u32, Bytes)>,
     },
+    /// Erasure-coded shard frame
+    Shard {
+        /// Original chunk ID this shard belongs to
+        chunk_id: u32,
+        /// Shard index within the erasure coding scheme
+        shard_idx: u16,
+        /// Total number of shards (data + parity)
+        total_shards: u16,
+        /// Shard data (zero-copy)
+        data: Bytes,
+    },
     /// Acknowledgment frame
     Ack {
         /// Acknowledged chunk IDs
@@ -73,6 +98,15 @@ pub enum Frame {
     Verify {
         /// Merkle tree root hash
         merkle_root: [u8; 32],
+    },
+    /// Per-chunk verification with Merkle proof
+    ChunkVerify {
+        /// Chunk ID being verified
+        chunk_id: u32,
+        /// Hash of the chunk data
+        chunk_hash: [u8; 32],
+        /// Merkle proof for O(log n) verification
+        proof: WireMerkleProof,
     },
     /// Error frame
     Error {
@@ -99,10 +133,12 @@ impl Frame {
             Self::Want { .. } => frame_type::WANT,
             Self::Chunk { .. } => frame_type::CHUNK,
             Self::ChunkBatch { .. } => frame_type::CHUNK_BATCH,
+            Self::Shard { .. } => frame_type::SHARD,
             Self::Ack { .. } => frame_type::ACK,
             Self::Nack { .. } => frame_type::NACK,
             Self::Done => frame_type::DONE,
             Self::Verify { .. } => frame_type::VERIFY,
+            Self::ChunkVerify { .. } => frame_type::CHUNK_VERIFY,
             Self::Error { .. } => frame_type::ERROR,
             Self::Cancel => frame_type::CANCEL,
             Self::Pause => frame_type::PAUSE,
@@ -168,6 +204,18 @@ impl Frame {
                     buf.put_slice(data);
                 }
             }
+            Self::Shard {
+                chunk_id,
+                shard_idx,
+                total_shards,
+                data,
+            } => {
+                buf.put_u32_le(*chunk_id);
+                buf.put_u16_le(*shard_idx);
+                buf.put_u16_le(*total_shards);
+                buf.put_u32_le(data.len() as u32);
+                buf.put_slice(data);
+            }
             Self::Ack { chunk_ids } => {
                 buf.put_u32_le(chunk_ids.len() as u32);
                 for id in chunk_ids {
@@ -186,6 +234,22 @@ impl Frame {
             Self::Done => {}
             Self::Verify { merkle_root } => {
                 buf.put_slice(merkle_root);
+            }
+            Self::ChunkVerify {
+                chunk_id,
+                chunk_hash,
+                proof,
+            } => {
+                buf.put_u32_le(*chunk_id);
+                buf.put_slice(chunk_hash);
+                // Encode proof: num_siblings + siblings + leaf_index + directions
+                buf.put_u32_le(proof.siblings.len() as u32);
+                for sibling in &proof.siblings {
+                    buf.put_slice(sibling);
+                }
+                buf.put_u32_le(proof.leaf_index);
+                buf.put_u32_le(proof.directions.len() as u32);
+                buf.put_slice(&proof.directions);
             }
             Self::Error { code, message } => {
                 buf.put_u32_le(*code);
@@ -335,6 +399,27 @@ impl Frame {
 
                 Self::ChunkBatch { chunks }
             }
+            frame_type::SHARD => {
+                if buf.remaining() < 12 {
+                    return Err(Error::Protocol("Incomplete SHARD frame".into()));
+                }
+                let chunk_id = buf.get_u32_le();
+                let shard_idx = buf.get_u16_le();
+                let total_shards = buf.get_u16_le();
+                let data_len = buf.get_u32_le();
+
+                if buf.remaining() < data_len as usize {
+                    return Err(Error::Protocol("Incomplete SHARD data".into()));
+                }
+                let data = buf.split_to(data_len as usize).freeze();
+
+                Self::Shard {
+                    chunk_id,
+                    shard_idx,
+                    total_shards,
+                    data,
+                }
+            }
             frame_type::ACK => {
                 if buf.remaining() < 4 {
                     return Err(Error::Protocol("Incomplete ACK frame".into()));
@@ -383,6 +468,47 @@ impl Frame {
                 let mut merkle_root = [0u8; 32];
                 buf.copy_to_slice(&mut merkle_root);
                 Self::Verify { merkle_root }
+            }
+            frame_type::CHUNK_VERIFY => {
+                // chunk_id (4) + chunk_hash (32) + num_siblings (4) minimum
+                if buf.remaining() < 40 {
+                    return Err(Error::Protocol("Incomplete CHUNK_VERIFY frame".into()));
+                }
+                let chunk_id = buf.get_u32_le();
+                let mut chunk_hash = [0u8; 32];
+                buf.copy_to_slice(&mut chunk_hash);
+
+                let num_siblings = buf.get_u32_le();
+                let mut siblings = Vec::with_capacity(num_siblings as usize);
+                for _ in 0..num_siblings {
+                    if buf.remaining() < 32 {
+                        return Err(Error::Protocol("Incomplete CHUNK_VERIFY siblings".into()));
+                    }
+                    let mut sibling = [0u8; 32];
+                    buf.copy_to_slice(&mut sibling);
+                    siblings.push(sibling);
+                }
+
+                if buf.remaining() < 8 {
+                    return Err(Error::Protocol("Incomplete CHUNK_VERIFY proof".into()));
+                }
+                let leaf_index = buf.get_u32_le();
+                let directions_len = buf.get_u32_le();
+
+                if buf.remaining() < directions_len as usize {
+                    return Err(Error::Protocol("Incomplete CHUNK_VERIFY directions".into()));
+                }
+                let directions = buf.split_to(directions_len as usize).to_vec();
+
+                Self::ChunkVerify {
+                    chunk_id,
+                    chunk_hash,
+                    proof: WireMerkleProof {
+                        siblings,
+                        leaf_index,
+                        directions,
+                    },
+                }
             }
             frame_type::ERROR => {
                 if buf.remaining() < 8 {
@@ -467,6 +593,75 @@ mod tests {
             Frame::Error { code, message } => {
                 assert_eq!(code, 500);
                 assert_eq!(message, "Test error");
+            }
+            _ => panic!("Wrong frame type"),
+        }
+    }
+
+    #[test]
+    fn test_shard_encode_decode() {
+        let data = Bytes::from(vec![10u8, 20, 30, 40, 50]);
+        let frame = Frame::Shard {
+            chunk_id: 100,
+            shard_idx: 3,
+            total_shards: 14,
+            data: data.clone(),
+        };
+
+        let mut buf = BytesMut::new();
+        frame.encode(&mut buf).unwrap();
+
+        let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+        match decoded {
+            Frame::Shard {
+                chunk_id,
+                shard_idx,
+                total_shards,
+                data: decoded_data,
+            } => {
+                assert_eq!(chunk_id, 100);
+                assert_eq!(shard_idx, 3);
+                assert_eq!(total_shards, 14);
+                assert_eq!(decoded_data, data);
+            }
+            _ => panic!("Wrong frame type"),
+        }
+    }
+
+    #[test]
+    fn test_chunk_verify_encode_decode() {
+        let chunk_hash = [0xABu8; 32];
+        let sibling1 = [0x11u8; 32];
+        let sibling2 = [0x22u8; 32];
+        let proof = WireMerkleProof {
+            siblings: vec![sibling1, sibling2],
+            leaf_index: 5,
+            directions: vec![0b01], // 2 bits packed
+        };
+
+        let frame = Frame::ChunkVerify {
+            chunk_id: 42,
+            chunk_hash,
+            proof,
+        };
+
+        let mut buf = BytesMut::new();
+        frame.encode(&mut buf).unwrap();
+
+        let decoded = Frame::decode(&mut buf).unwrap().unwrap();
+        match decoded {
+            Frame::ChunkVerify {
+                chunk_id,
+                chunk_hash: decoded_hash,
+                proof: decoded_proof,
+            } => {
+                assert_eq!(chunk_id, 42);
+                assert_eq!(decoded_hash, chunk_hash);
+                assert_eq!(decoded_proof.siblings.len(), 2);
+                assert_eq!(decoded_proof.siblings[0], sibling1);
+                assert_eq!(decoded_proof.siblings[1], sibling2);
+                assert_eq!(decoded_proof.leaf_index, 5);
+                assert_eq!(decoded_proof.directions, vec![0b01]);
             }
             _ => panic!("Wrong frame type"),
         }

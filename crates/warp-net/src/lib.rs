@@ -11,6 +11,7 @@
 pub mod codec;
 pub mod frames;
 pub mod listener;
+pub mod pool;
 pub mod protocol;
 pub mod tls;
 pub mod transport;
@@ -42,6 +43,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub use codec::Frame;
 pub use frames::{Capabilities, GpuInfo};
 pub use listener::WarpListener;
+pub use pool::{global_pool, FrameBufferPool, PooledBuffer, PoolStats};
 pub use protocol::{NegotiatedParams, ProtocolState};
 pub use tls::{client_config, generate_self_signed, server_config};
 #[cfg(any(test, feature = "insecure-tls"))]

@@ -13,6 +13,7 @@ warp-compress.workspace = true
 warp-hash.workspace = true
 warp-crypto.workspace = true
 warp-io.workspace = true
+warp-ec.workspace = true
 
 tokio.workspace = true
 tracing.workspace = true

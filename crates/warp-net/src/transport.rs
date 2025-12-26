@@ -2,12 +2,13 @@
 
 use crate::codec::Frame;
 use crate::frames::Capabilities;
+use crate::pool::global_pool;
 use crate::protocol::{NegotiatedParams, ProtocolState};
 use crate::tls::{client_config, generate_self_signed, server_config};
 #[cfg(any(test, feature = "insecure-tls"))]
 use crate::tls::client_config_insecure;
 use crate::{Error, Result};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use quinn::{Connection, Endpoint, RecvStream, SendStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -96,8 +97,10 @@ impl WarpConnection {
 
     /// Send a frame on the control stream
     pub async fn send_frame(&self, frame: Frame) -> Result<()> {
-        let mut buf = BytesMut::new();
-        frame.encode(&mut buf)?;
+        // Use pooled buffer to avoid allocation on every frame
+        let pool = global_pool();
+        let mut pooled_buf = pool.get_medium();
+        frame.encode(&mut pooled_buf)?;
 
         tracing::trace!("Sending frame: {:?}", frame.frame_type());
 
@@ -106,11 +109,12 @@ impl WarpConnection {
             .as_mut()
             .ok_or_else(|| Error::Protocol("Control stream not open".into()))?;
 
-        send.write_all(&buf)
+        send.write_all(&pooled_buf)
             .await
             .map_err(|e| Error::Connection(format!("Failed to send frame: {}", e)))?;
 
         drop(send_lock);
+        // pooled_buf returned to pool on drop
 
         Ok(())
     }
@@ -122,7 +126,9 @@ impl WarpConnection {
             .as_mut()
             .ok_or_else(|| Error::Protocol("Control stream not open".into()))?;
 
-        let mut buf = BytesMut::with_capacity(4096);
+        // Use pooled buffer to avoid allocation on every frame
+        let pool = global_pool();
+        let mut pooled_buf = pool.get_medium();
         loop {
             let chunk = recv
                 .read_chunk(MAX_RECV_BUF, true)
@@ -130,10 +136,11 @@ impl WarpConnection {
                 .map_err(|e| Error::Connection(format!("Failed to receive: {}", e)))?
                 .ok_or_else(|| Error::Connection("Connection closed".into()))?;
 
-            buf.extend_from_slice(&chunk.bytes);
+            pooled_buf.extend_from_slice(&chunk.bytes);
 
-            if let Some(frame) = Frame::decode(&mut buf)? {
+            if let Some(frame) = Frame::decode(&mut pooled_buf)? {
                 tracing::trace!("Received frame: {:?}", frame.frame_type());
+                // pooled_buf returned to pool on drop
                 return Ok(frame);
             }
         }
@@ -248,10 +255,12 @@ impl WarpConnection {
             data,
         };
 
-        let mut buf = BytesMut::new();
-        frame.encode(&mut buf)?;
+        // Use pooled buffer - size based on typical chunk header + small data
+        let pool = global_pool();
+        let mut pooled_buf = pool.get_large();
+        frame.encode(&mut pooled_buf)?;
 
-        send.write_all(&buf)
+        send.write_all(&pooled_buf)
             .await
             .map_err(|e| Error::Connection(format!("Failed to send chunk: {}", e)))?;
 
@@ -269,7 +278,9 @@ impl WarpConnection {
             .await
             .map_err(|e| Error::Connection(format!("Failed to accept stream: {}", e)))?;
 
-        let mut buf = BytesMut::with_capacity(4096);
+        // Use pooled buffer for chunk reception
+        let pool = global_pool();
+        let mut pooled_buf = pool.get_large();
         loop {
             let chunk = recv
                 .read_chunk(MAX_RECV_BUF, true)
@@ -278,9 +289,9 @@ impl WarpConnection {
 
             match chunk {
                 Some(chunk_data) => {
-                    buf.extend_from_slice(&chunk_data.bytes);
+                    pooled_buf.extend_from_slice(&chunk_data.bytes);
 
-                    if let Some(frame) = Frame::decode(&mut buf)? {
+                    if let Some(frame) = Frame::decode(&mut pooled_buf)? {
                         match frame {
                             Frame::Chunk { chunk_id, data } => return Ok((chunk_id, data)),
                             _ => return Err(Error::Protocol("Expected CHUNK frame".into())),
@@ -300,10 +311,12 @@ impl WarpConnection {
 
         let frame = Frame::ChunkBatch { chunks };
 
-        let mut buf = BytesMut::new();
-        frame.encode(&mut buf)?;
+        // Use pooled buffer - large buffer for batch data
+        let pool = global_pool();
+        let mut pooled_buf = pool.get_large();
+        frame.encode(&mut pooled_buf)?;
 
-        send.write_all(&buf)
+        send.write_all(&pooled_buf)
             .await
             .map_err(|e| Error::Connection(format!("Failed to send batch: {}", e)))?;
 

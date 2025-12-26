@@ -6036,6 +6036,7 @@ dependencies = [
  "tracing",
  "warp-compress",
  "warp-crypto",
+ "warp-ec",
  "warp-format",
  "warp-hash",
  "warp-io",

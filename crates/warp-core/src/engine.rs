@@ -8,8 +8,28 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
-use warp_format::{Compression, WarpReader, WarpWriter, WarpWriterConfig};
+use warp_ec::{ErasureConfig, ErasureEncoder, ErasureDecoder};
+use warp_format::{Compression, SparseMerkleTree, WarpReader, WarpWriter, WarpWriterConfig};
+use warp_hash::Hasher;
+use warp_net::codec::WireMerkleProof;
 use warp_net::{Frame, WarpEndpoint};
+
+/// Chunk verification mode during transfer
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerificationMode {
+    /// No per-chunk verification (default)
+    #[default]
+    None,
+    /// Verify final Merkle root only
+    Final,
+    /// Verify each chunk with Merkle proof (O(log n) per chunk)
+    PerChunk,
+    /// Random sampling verification (verify N% of chunks)
+    Sampling {
+        /// Percentage of chunks to verify (1-100)
+        percent: u8,
+    },
+}
 
 /// Transfer engine configuration
 #[derive(Debug, Clone)]
@@ -24,6 +44,15 @@ pub struct TransferConfig {
     pub compression: Compression,
     /// Verify integrity on completion
     pub verify_on_complete: bool,
+    /// Erasure coding configuration for fault-tolerant transfers
+    ///
+    /// When set, chunks are encoded with Reed-Solomon erasure coding
+    /// before transmission, allowing recovery from shard loss.
+    pub erasure_config: Option<ErasureConfig>,
+    /// Chunk verification mode
+    ///
+    /// Controls how and when chunk integrity is verified during transfer.
+    pub verification_mode: VerificationMode,
 }
 
 impl Default for TransferConfig {
@@ -34,7 +63,47 @@ impl Default for TransferConfig {
             compression_level: 3,
             compression: Compression::Zstd,
             verify_on_complete: true,
+            erasure_config: None,
+            verification_mode: VerificationMode::None,
         }
+    }
+}
+
+impl TransferConfig {
+    /// Enable RS(10,4) erasure coding for fault-tolerant transfers
+    ///
+    /// This provides 40% redundancy, allowing recovery from up to 4 lost shards.
+    pub fn with_erasure_coding(mut self) -> Self {
+        self.erasure_config = Some(ErasureConfig::rs_10_4());
+        self
+    }
+
+    /// Enable erasure coding with a custom configuration
+    pub fn with_erasure_config(mut self, config: ErasureConfig) -> Self {
+        self.erasure_config = Some(config);
+        self
+    }
+
+    /// Enable per-chunk Merkle verification
+    ///
+    /// Each chunk is verified with an O(log n) proof during transfer.
+    pub fn with_per_chunk_verification(mut self) -> Self {
+        self.verification_mode = VerificationMode::PerChunk;
+        self
+    }
+
+    /// Enable sampling verification (verify N% of chunks)
+    pub fn with_sampling_verification(mut self, percent: u8) -> Self {
+        self.verification_mode = VerificationMode::Sampling {
+            percent: percent.min(100),
+        };
+        self
+    }
+
+    /// Set verification mode
+    pub fn with_verification_mode(mut self, mode: VerificationMode) -> Self {
+        self.verification_mode = mode;
+        self
     }
 }
 
@@ -269,21 +338,111 @@ impl TransferEngine {
         let reader = WarpReader::open(temp_path)?;
         let start_time = Instant::now();
 
+        // Create erasure encoder if configured
+        let encoder = self.config.erasure_config.as_ref()
+            .map(|ec| ErasureEncoder::new(ec.clone()));
+
+        // Build Merkle tree for per-chunk verification if needed
+        let merkle_tree: Option<SparseMerkleTree> = if matches!(self.config.verification_mode, VerificationMode::PerChunk | VerificationMode::Sampling { .. }) {
+            // Collect all chunk hashes
+            let chunk_hashes: Vec<[u8; 32]> = (0..temp_header.total_chunks as usize)
+                .map(|i| {
+                    let chunk = reader.read_chunk(i).unwrap_or_default();
+                    let mut hasher = Hasher::new();
+                    hasher.update(&chunk);
+                    hasher.finalize()
+                })
+                .collect();
+            Some(SparseMerkleTree::from_leaves(chunk_hashes))
+        } else {
+            None
+        };
+
+        // Determine which chunks to verify based on mode
+        let should_verify_chunk = |idx: usize| -> bool {
+            match self.config.verification_mode {
+                VerificationMode::None | VerificationMode::Final => false,
+                VerificationMode::PerChunk => true,
+                VerificationMode::Sampling { percent } => {
+                    // Simple deterministic sampling based on chunk index
+                    (idx * 100 / temp_header.total_chunks.max(1) as usize) < percent as usize
+                        || idx % (100 / percent.max(1) as usize) == 0
+                }
+            }
+        };
+
         for chunk_idx in 0..temp_header.total_chunks as usize {
             if session.is_chunk_completed(chunk_idx as u64) {
                 continue;
             }
 
-            let chunk_data = Bytes::from(reader.read_chunk(chunk_idx)?);
+            let chunk_data = reader.read_chunk(chunk_idx)?;
+            let mut hasher = Hasher::new();
+            hasher.update(&chunk_data);
+            let chunk_hash = hasher.finalize();
 
-            conn.send_frame(Frame::Chunk {
-                chunk_id: chunk_idx as u32,
-                data: chunk_data.clone(),
-            })
-            .await?;
+            // Send with erasure coding or plain chunk
+            if let Some(ref enc) = encoder {
+                // Encode chunk into shards and send each
+                let shards = enc.encode(&chunk_data)
+                    .map_err(|e| Error::Session(format!("Erasure encoding failed: {}", e)))?;
+                let total_shards = shards.len() as u16;
+
+                for (shard_idx, shard_data) in shards.into_iter().enumerate() {
+                    conn.send_frame(Frame::Shard {
+                        chunk_id: chunk_idx as u32,
+                        shard_idx: shard_idx as u16,
+                        total_shards,
+                        data: Bytes::from(shard_data),
+                    })
+                    .await?;
+                }
+
+                session.transferred_bytes += chunk_data.len() as u64;
+            } else {
+                // Send plain chunk
+                let chunk_bytes = Bytes::from(chunk_data);
+                conn.send_frame(Frame::Chunk {
+                    chunk_id: chunk_idx as u32,
+                    data: chunk_bytes.clone(),
+                })
+                .await?;
+
+                session.transferred_bytes += chunk_bytes.len() as u64;
+            }
+
+            // Send per-chunk verification if enabled
+            if should_verify_chunk(chunk_idx) {
+                if let Some(ref tree) = merkle_tree {
+                    let proof = tree.generate_proof(chunk_idx);
+
+                    // Pack direction bits into bytes
+                    let directions_packed: Vec<u8> = proof.directions
+                        .chunks(8)
+                        .map(|bits: &[bool]| {
+                            bits.iter().enumerate().fold(0u8, |acc, (i, &b)| {
+                                acc | ((b as u8) << i)
+                            })
+                        })
+                        .collect();
+
+                    // Convert to wire format
+                    let wire_proof = WireMerkleProof {
+                        siblings: proof.siblings,
+                        leaf_index: proof.leaf_index as u32,
+                        directions: directions_packed,
+                    };
+
+                    conn.send_frame(Frame::ChunkVerify {
+                        chunk_id: chunk_idx as u32,
+                        chunk_hash,
+                        proof: wire_proof,
+                    })
+                    .await?;
+                }
+            }
 
             session.complete_chunk(chunk_idx as u64);
-            session.transferred_bytes += chunk_data.len() as u64;
 
             if let Some(ref callback) = self.progress_callback {
                 let elapsed = start_time.elapsed().as_secs_f64();
