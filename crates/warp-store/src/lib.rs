@@ -49,6 +49,7 @@ pub mod key;
 pub mod lifecycle;
 pub mod metrics;
 pub mod object;
+pub mod object_lock;
 pub mod replication;
 pub mod transport;
 pub mod version;
@@ -73,6 +74,10 @@ pub use object::{ObjectData, ObjectMeta, PutOptions, ListOptions, ObjectList, Ob
 pub use version::{Version, VersionId, VersioningMode};
 pub use lifecycle::{LifecycleExecutor, LifecycleConfig, LifecycleStats, LifecycleRuleBuilder};
 pub use events::{EventEmitter, EventConfig, S3Event, EventType, NotificationConfiguration};
+pub use object_lock::{
+    ObjectLockConfig, ObjectLockManager, ObjectLockStatus, ObjectRetention,
+    RetentionMode, LegalHoldStatus, DefaultRetention,
+};
 
 use std::sync::Arc;
 use dashmap::DashMap;

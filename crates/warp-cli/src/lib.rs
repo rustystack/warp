@@ -103,6 +103,129 @@ pub enum Commands {
         #[command(subcommand)]
         action: StreamAction,
     },
+
+    // ============= S3-Compatible Storage Commands =============
+
+    /// List buckets or objects (mc ls)
+    #[command(name = "ls")]
+    List {
+        /// Path (bucket or bucket/prefix)
+        #[arg(default_value = "")]
+        path: String,
+        /// Recursive listing
+        #[arg(short, long)]
+        recursive: bool,
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Make a bucket (mc mb)
+    #[command(name = "mb")]
+    MakeBucket {
+        /// Bucket name
+        bucket: String,
+        /// Enable Object Lock
+        #[arg(long)]
+        with_lock: bool,
+        /// Enable versioning
+        #[arg(long)]
+        with_versioning: bool,
+    },
+
+    /// Remove a bucket (mc rb)
+    #[command(name = "rb")]
+    RemoveBucket {
+        /// Bucket name
+        bucket: String,
+        /// Force removal of non-empty bucket
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Copy objects (mc cp)
+    #[command(name = "cp")]
+    Copy {
+        /// Source path (local file or bucket/key)
+        source: String,
+        /// Destination path (local file or bucket/key)
+        destination: String,
+        /// Recursive copy
+        #[arg(short, long)]
+        recursive: bool,
+        /// Preserve attributes
+        #[arg(short = 'a', long)]
+        preserve: bool,
+    },
+
+    /// Move objects (mc mv)
+    #[command(name = "mv")]
+    Move {
+        /// Source path
+        source: String,
+        /// Destination path
+        destination: String,
+        /// Recursive move
+        #[arg(short, long)]
+        recursive: bool,
+    },
+
+    /// Remove objects (mc rm)
+    #[command(name = "rm")]
+    Remove {
+        /// Path to remove (bucket/key)
+        path: String,
+        /// Recursive removal
+        #[arg(short, long)]
+        recursive: bool,
+        /// Force removal (no confirmation)
+        #[arg(long)]
+        force: bool,
+        /// Bypass governance retention
+        #[arg(long)]
+        bypass_governance: bool,
+        /// Remove all versions
+        #[arg(long)]
+        versions: bool,
+    },
+
+    /// Display object contents (mc cat)
+    #[command(name = "cat")]
+    Cat {
+        /// Object path (bucket/key)
+        path: String,
+        /// Specific version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+
+    /// Get object info/head (mc stat)
+    #[command(name = "stat")]
+    Stat {
+        /// Object path (bucket/key)
+        path: String,
+        /// Specific version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+
+    /// Object retention management
+    Retention {
+        #[command(subcommand)]
+        action: RetentionAction,
+    },
+
+    /// Legal hold management
+    LegalHold {
+        #[command(subcommand)]
+        action: LegalHoldAction,
+    },
+
+    /// Set an alias for a storage endpoint
+    Alias {
+        #[command(subcommand)]
+        action: AliasAction,
+    },
 }
 
 /// Stream subcommands for pipe-based encryption/decryption
@@ -135,4 +258,99 @@ pub enum StreamAction {
         #[arg(long)]
         progress: bool,
     },
+}
+
+/// Retention subcommands
+#[derive(clap::Subcommand)]
+pub enum RetentionAction {
+    /// Set retention on an object
+    Set {
+        /// Object path (bucket/key)
+        path: String,
+        /// Retention mode (GOVERNANCE or COMPLIANCE)
+        #[arg(long)]
+        mode: String,
+        /// Retention period in days
+        #[arg(long)]
+        days: Option<u32>,
+        /// Retain until date (ISO 8601)
+        #[arg(long)]
+        until: Option<String>,
+        /// Version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+    /// Get retention info for an object
+    Get {
+        /// Object path (bucket/key)
+        path: String,
+        /// Version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+    /// Clear retention (governance mode only)
+    Clear {
+        /// Object path (bucket/key)
+        path: String,
+        /// Version ID
+        #[arg(long)]
+        version_id: Option<String>,
+        /// Bypass governance retention
+        #[arg(long)]
+        bypass_governance: bool,
+    },
+}
+
+/// Legal hold subcommands
+#[derive(clap::Subcommand)]
+pub enum LegalHoldAction {
+    /// Enable legal hold on an object
+    Set {
+        /// Object path (bucket/key)
+        path: String,
+        /// Version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+    /// Disable legal hold on an object
+    Clear {
+        /// Object path (bucket/key)
+        path: String,
+        /// Version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+    /// Get legal hold status
+    Get {
+        /// Object path (bucket/key)
+        path: String,
+        /// Version ID
+        #[arg(long)]
+        version_id: Option<String>,
+    },
+}
+
+/// Alias management subcommands
+#[derive(clap::Subcommand)]
+pub enum AliasAction {
+    /// Set or update an alias
+    Set {
+        /// Alias name
+        alias: String,
+        /// Endpoint URL
+        url: String,
+        /// Access key
+        #[arg(long)]
+        access_key: Option<String>,
+        /// Secret key
+        #[arg(long)]
+        secret_key: Option<String>,
+    },
+    /// Remove an alias
+    Remove {
+        /// Alias name
+        alias: String,
+    },
+    /// List all aliases
+    List,
 }

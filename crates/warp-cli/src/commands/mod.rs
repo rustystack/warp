@@ -10,3 +10,4 @@ pub mod resume;
 pub mod bench;
 pub mod completions;
 pub mod stream;
+pub mod storage;

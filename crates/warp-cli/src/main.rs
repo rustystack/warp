@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use warp_cli::{Cli, Commands, StreamAction};
+use warp_cli::{Cli, Commands, StreamAction, RetentionAction, LegalHoldAction, AliasAction};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,6 +23,7 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
+        // ============= Transfer Commands =============
         Commands::Send { source, destination, compress, no_gpu, encrypt, password } => {
             warp_cli::commands::send::execute(&source, &destination, compress.as_deref(), no_gpu, encrypt, password.as_deref()).await
         }
@@ -57,6 +58,83 @@ async fn main() -> Result<()> {
                 }
                 StreamAction::Decrypt { password, no_gpu, progress } => {
                     warp_cli::commands::stream::decrypt(password.as_deref(), no_gpu, progress).await
+                }
+            }
+        }
+
+        // ============= S3-Compatible Storage Commands =============
+        Commands::List { path, recursive, json } => {
+            warp_cli::commands::storage::list(&path, recursive, json).await
+        }
+        Commands::MakeBucket { bucket, with_lock, with_versioning } => {
+            warp_cli::commands::storage::make_bucket(&bucket, with_lock, with_versioning).await
+        }
+        Commands::RemoveBucket { bucket, force } => {
+            warp_cli::commands::storage::remove_bucket(&bucket, force).await
+        }
+        Commands::Copy { source, destination, recursive, preserve } => {
+            warp_cli::commands::storage::copy(&source, &destination, recursive, preserve).await
+        }
+        Commands::Move { source, destination, recursive } => {
+            warp_cli::commands::storage::mv(&source, &destination, recursive).await
+        }
+        Commands::Remove { path, recursive, force, bypass_governance, versions } => {
+            warp_cli::commands::storage::remove(&path, recursive, force, bypass_governance, versions).await
+        }
+        Commands::Cat { path, version_id } => {
+            warp_cli::commands::storage::cat(&path, version_id.as_deref()).await
+        }
+        Commands::Stat { path, version_id } => {
+            warp_cli::commands::storage::stat(&path, version_id.as_deref()).await
+        }
+
+        // ============= Retention Commands =============
+        Commands::Retention { action } => {
+            match action {
+                RetentionAction::Set { path, mode, days, until, version_id } => {
+                    warp_cli::commands::storage::retention_set(
+                        &path, &mode, days, until.as_deref(), version_id.as_deref()
+                    ).await
+                }
+                RetentionAction::Get { path, version_id } => {
+                    warp_cli::commands::storage::retention_get(&path, version_id.as_deref()).await
+                }
+                RetentionAction::Clear { path, version_id, bypass_governance } => {
+                    warp_cli::commands::storage::retention_clear(
+                        &path, version_id.as_deref(), bypass_governance
+                    ).await
+                }
+            }
+        }
+
+        // ============= Legal Hold Commands =============
+        Commands::LegalHold { action } => {
+            match action {
+                LegalHoldAction::Set { path, version_id } => {
+                    warp_cli::commands::storage::legal_hold_set(&path, version_id.as_deref()).await
+                }
+                LegalHoldAction::Clear { path, version_id } => {
+                    warp_cli::commands::storage::legal_hold_clear(&path, version_id.as_deref()).await
+                }
+                LegalHoldAction::Get { path, version_id } => {
+                    warp_cli::commands::storage::legal_hold_get(&path, version_id.as_deref()).await
+                }
+            }
+        }
+
+        // ============= Alias Commands =============
+        Commands::Alias { action } => {
+            match action {
+                AliasAction::Set { alias, url, access_key, secret_key } => {
+                    warp_cli::commands::storage::alias_set(
+                        &alias, &url, access_key.as_deref(), secret_key.as_deref()
+                    ).await
+                }
+                AliasAction::Remove { alias } => {
+                    warp_cli::commands::storage::alias_remove(&alias).await
+                }
+                AliasAction::List => {
+                    warp_cli::commands::storage::alias_list().await
                 }
             }
         }

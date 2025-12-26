@@ -141,6 +141,14 @@ pub enum Error {
     /// Erasure coding error
     #[error("erasure coding error: {0}")]
     ErasureCoding(String),
+
+    /// Object is locked (WORM/Object Lock)
+    #[error("object is locked: {0}")]
+    ObjectLocked(String),
+
+    /// Invalid argument
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
 }
 
 impl From<rmp_serde::encode::Error> for Error {
