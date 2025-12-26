@@ -122,6 +122,49 @@ pub enum Frame {
 }
 
 impl Frame {
+    /// Calculate exact encoded size for pre-allocation
+    ///
+    /// Returns the total size in bytes including the 8-byte header.
+    /// This allows pre-allocating BytesMut to avoid buffer growth during encoding.
+    pub fn encoded_size(&self) -> usize {
+        let payload_size = match self {
+            Self::Hello { .. } => 4,
+            Self::Capabilities(caps) => {
+                // MessagePack serialization size - estimate based on typical caps
+                // This is an estimate; actual size may vary slightly
+                rmp_serde::to_vec(caps).map(|v| v.len()).unwrap_or(64)
+            }
+            Self::Plan { metadata, .. } => 20 + metadata.len(),
+            Self::Accept => 0,
+            Self::Have { chunk_ids } | Self::Want { chunk_ids } => 4 + chunk_ids.len() * 4,
+            Self::Chunk { data, .. } => 8 + data.len(),
+            Self::ChunkBatch { chunks } => {
+                4 + chunks.iter().map(|(_, d)| 8 + d.len()).sum::<usize>()
+            }
+            Self::Shard { data, .. } => 12 + data.len(),
+            Self::Ack { chunk_ids } => 4 + chunk_ids.len() * 4,
+            Self::Nack { chunk_ids, reason } => 4 + chunk_ids.len() * 4 + 4 + reason.len(),
+            Self::Done => 0,
+            Self::Verify { .. } => 32,
+            Self::ChunkVerify { proof, .. } => {
+                4 + 32 + 4 + proof.siblings.len() * 32 + 4 + 4 + proof.directions.len()
+            }
+            Self::Error { message, .. } => 8 + message.len(),
+            Self::Cancel | Self::Pause => 0,
+        };
+        FrameHeader::SIZE + payload_size
+    }
+
+    /// Encode frame to a pre-allocated buffer
+    ///
+    /// This method pre-allocates the buffer to the exact size needed,
+    /// avoiding any BytesMut growth during encoding.
+    pub fn encode_preallocated(&self) -> Result<BytesMut> {
+        let mut buf = BytesMut::with_capacity(self.encoded_size());
+        self.encode(&mut buf)?;
+        Ok(buf)
+    }
+
     /// Get frame type identifier
     pub fn frame_type(&self) -> u8 {
         match self {
@@ -455,8 +498,9 @@ impl Frame {
                     return Err(Error::Protocol("Incomplete NACK reason".into()));
                 }
                 let reason_bytes = buf.split_to(reason_len as usize);
-                let reason = String::from_utf8(reason_bytes.to_vec())
-                    .map_err(|e| Error::Protocol(format!("Invalid UTF-8 in NACK reason: {}", e)))?;
+                let reason = std::str::from_utf8(&reason_bytes)
+                    .map_err(|e| Error::Protocol(format!("Invalid UTF-8 in NACK reason: {}", e)))?
+                    .to_string();
 
                 Self::Nack { chunk_ids, reason }
             }
@@ -521,8 +565,9 @@ impl Frame {
                     return Err(Error::Protocol("Incomplete ERROR message".into()));
                 }
                 let msg_bytes = buf.split_to(msg_len as usize);
-                let message = String::from_utf8(msg_bytes.to_vec())
-                    .map_err(|e| Error::Protocol(format!("Invalid UTF-8 in ERROR message: {}", e)))?;
+                let message = std::str::from_utf8(&msg_bytes)
+                    .map_err(|e| Error::Protocol(format!("Invalid UTF-8 in ERROR message: {}", e)))?
+                    .to_string();
 
                 Self::Error { code, message }
             }
@@ -665,5 +710,78 @@ mod tests {
             }
             _ => panic!("Wrong frame type"),
         }
+    }
+
+    #[test]
+    fn test_encoded_size_accuracy() {
+        // Test that encoded_size matches actual encoded length
+        let frames: Vec<Frame> = vec![
+            Frame::Hello { version: 1 },
+            Frame::Accept,
+            Frame::Done,
+            Frame::Cancel,
+            Frame::Pause,
+            Frame::Chunk {
+                chunk_id: 42,
+                data: Bytes::from(vec![1u8, 2, 3, 4, 5]),
+            },
+            Frame::Ack { chunk_ids: vec![1, 2, 3] },
+            Frame::Have { chunk_ids: vec![10, 20] },
+            Frame::Want { chunk_ids: vec![100] },
+            Frame::Nack {
+                chunk_ids: vec![5],
+                reason: "test error".to_string(),
+            },
+            Frame::Error {
+                code: 500,
+                message: "internal error".to_string(),
+            },
+            Frame::Verify { merkle_root: [0xAB; 32] },
+            Frame::Shard {
+                chunk_id: 1,
+                shard_idx: 2,
+                total_shards: 6,
+                data: Bytes::from(vec![10u8; 100]),
+            },
+        ];
+
+        for frame in frames {
+            let predicted_size = frame.encoded_size();
+            let mut buf = BytesMut::new();
+            frame.encode(&mut buf).unwrap();
+            let actual_size = buf.len();
+
+            assert_eq!(
+                predicted_size, actual_size,
+                "Size mismatch for {:?}: predicted {}, actual {}",
+                frame.frame_type(), predicted_size, actual_size
+            );
+        }
+    }
+
+    #[test]
+    fn test_encode_preallocated() {
+        let data = Bytes::from(vec![1u8, 2, 3, 4, 5]);
+        let frame = Frame::Chunk {
+            chunk_id: 42,
+            data: data.clone(),
+        };
+
+        // Encode with preallocated buffer
+        let buf = frame.encode_preallocated().unwrap();
+
+        // Decode and verify
+        let mut buf_clone = buf.clone();
+        let decoded = Frame::decode(&mut buf_clone).unwrap().unwrap();
+        match decoded {
+            Frame::Chunk { chunk_id, data: decoded_data } => {
+                assert_eq!(chunk_id, 42);
+                assert_eq!(decoded_data, data);
+            }
+            _ => panic!("Wrong frame type"),
+        }
+
+        // Verify capacity matches length (no excess allocation)
+        assert_eq!(buf.len(), buf.capacity());
     }
 }
