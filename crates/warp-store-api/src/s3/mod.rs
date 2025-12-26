@@ -27,12 +27,14 @@ mod select;
 
 mod lifecycle;
 mod notifications;
+mod policy;
 
 #[cfg(feature = "s3-select")]
 pub use select::{SelectObjectContentRequest, SelectQuery};
 
 pub use lifecycle::{LifecycleConfigurationXml, LifecycleQuery};
 pub use notifications::NotificationConfigurationXml;
+pub use policy::{BucketPolicyManager, PolicyDocument, get_s3_action};
 
 /// Create S3 API routes
 pub fn routes<B: StorageBackend>(state: AppState<B>) -> Router {
@@ -84,9 +86,11 @@ struct BucketPutQuery {
     lifecycle: Option<String>,
     /// Notification query parameter (presence indicates notification request)
     notification: Option<String>,
+    /// Policy query parameter (presence indicates policy request)
+    policy: Option<String>,
 }
 
-/// Create a bucket or set lifecycle/notification configuration
+/// Create a bucket or set lifecycle/notification/policy configuration
 async fn create_bucket<B: StorageBackend>(
     State(state): State<AppState<B>>,
     Path(bucket): Path<String>,
@@ -101,6 +105,11 @@ async fn create_bucket<B: StorageBackend>(
     // Check if this is a notification request
     if query.notification.is_some() {
         return notifications::put_notifications(State(state), Path(bucket), body).await;
+    }
+
+    // Check if this is a policy request
+    if query.policy.is_some() {
+        return policy::put_policy(State(state), Path(bucket), body).await;
     }
 
     state.store.create_bucket(&bucket, Default::default()).await?;
@@ -119,9 +128,11 @@ struct BucketDeleteQuery {
     lifecycle: Option<String>,
     /// Notification query parameter (presence indicates notification request)
     notification: Option<String>,
+    /// Policy query parameter (presence indicates policy request)
+    policy: Option<String>,
 }
 
-/// Delete a bucket or delete lifecycle/notification configuration
+/// Delete a bucket or delete lifecycle/notification/policy configuration
 async fn delete_bucket<B: StorageBackend>(
     State(state): State<AppState<B>>,
     Path(bucket): Path<String>,
@@ -137,12 +148,17 @@ async fn delete_bucket<B: StorageBackend>(
         return notifications::delete_notifications(State(state), Path(bucket)).await;
     }
 
+    // Check if this is a policy request
+    if query.policy.is_some() {
+        return policy::delete_policy(State(state), Path(bucket)).await;
+    }
+
     state.store.delete_bucket(&bucket).await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// List objects query parameters (also handles lifecycle and notification requests)
+/// List objects query parameters (also handles lifecycle, notification, and policy requests)
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 struct ListObjectsQuery {
@@ -158,9 +174,11 @@ struct ListObjectsQuery {
     lifecycle: Option<String>,
     /// Notification query parameter (presence indicates notification request)
     notification: Option<String>,
+    /// Policy query parameter (presence indicates policy request)
+    policy: Option<String>,
 }
 
-/// List objects in a bucket (ListObjectsV2) or get lifecycle/notification configuration
+/// List objects in a bucket (ListObjectsV2) or get lifecycle/notification/policy configuration
 async fn list_objects<B: StorageBackend>(
     State(state): State<AppState<B>>,
     Path(bucket): Path<String>,
@@ -174,6 +192,11 @@ async fn list_objects<B: StorageBackend>(
     // Check if this is a notification request
     if query.notification.is_some() {
         return notifications::get_notifications(State(state), Path(bucket)).await;
+    }
+
+    // Check if this is a policy request
+    if query.policy.is_some() {
+        return policy::get_policy(State(state), Path(bucket)).await;
     }
 
     let prefix = query.prefix.unwrap_or_default();

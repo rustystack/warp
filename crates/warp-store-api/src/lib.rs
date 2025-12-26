@@ -66,6 +66,8 @@ use warp_store::backend::{StorageBackend, MultipartUpload, PartInfo};
 use warp_store::bucket::LifecycleRule;
 use warp_store::events::NotificationConfiguration;
 
+use s3::BucketPolicyManager;
+
 #[cfg(feature = "iam")]
 use auth::IamManagers;
 
@@ -139,6 +141,9 @@ pub struct AppState<B: StorageBackend> {
     /// Notification configurations per bucket (bucket_name -> NotificationConfiguration)
     notification_configs: Arc<DashMap<String, NotificationConfiguration>>,
 
+    /// Bucket policy manager
+    pub policy_manager: Option<Arc<BucketPolicyManager>>,
+
     /// IAM managers for authentication and authorization
     #[cfg(feature = "iam")]
     pub iam: Option<Arc<IamManagers>>,
@@ -154,6 +159,7 @@ impl<B: StorageBackend> Clone for AppState<B> {
             parts: Arc::clone(&self.parts),
             lifecycle_rules: Arc::clone(&self.lifecycle_rules),
             notification_configs: Arc::clone(&self.notification_configs),
+            policy_manager: self.policy_manager.clone(),
             #[cfg(feature = "iam")]
             iam: self.iam.clone(),
         }
@@ -257,6 +263,7 @@ impl ApiServer<warp_store::backend::LocalBackend> {
                 parts: Arc::new(DashMap::new()),
                 lifecycle_rules: Arc::new(DashMap::new()),
                 notification_configs: Arc::new(DashMap::new()),
+                policy_manager: Some(Arc::new(BucketPolicyManager::new())),
                 #[cfg(feature = "iam")]
                 iam,
             },
@@ -283,6 +290,7 @@ impl<B: StorageBackend> ApiServer<B> {
                 parts: Arc::new(DashMap::new()),
                 lifecycle_rules: Arc::new(DashMap::new()),
                 notification_configs: Arc::new(DashMap::new()),
+                policy_manager: Some(Arc::new(BucketPolicyManager::new())),
                 #[cfg(feature = "iam")]
                 iam,
             },
@@ -307,6 +315,7 @@ impl<B: StorageBackend> ApiServer<B> {
                 parts: Arc::new(DashMap::new()),
                 lifecycle_rules: Arc::new(DashMap::new()),
                 notification_configs: Arc::new(DashMap::new()),
+                policy_manager: Some(Arc::new(BucketPolicyManager::new())),
                 #[cfg(feature = "iam")]
                 iam,
             },
