@@ -5687,6 +5687,7 @@ name = "warp-store-api"
 version = "0.1.0"
 dependencies = [
  "arrow2",
+ "async-trait",
  "axum 0.8.7",
  "base64 0.22.1",
  "blake3",
@@ -5715,6 +5716,7 @@ dependencies = [
  "tracing",
  "uuid",
  "warp-gpu",
+ "warp-iam",
  "warp-store",
 ]
 

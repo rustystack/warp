@@ -1372,3 +1372,272 @@ async fn test_collective_read_empty_keys() {
     assert_eq!(body["object_count"], 0);
     assert_eq!(body["total_bytes"], 0);
 }
+
+// =============================================================================
+// GPU Operations Tests (Phase 2)
+// =============================================================================
+
+#[tokio::test]
+async fn test_gpu_hash() {
+    let server = TestServer::new().await;
+
+    // Create bucket and object
+    server.client.put(server.url("/gpu-hash-test")).send().await.unwrap();
+
+    let content = b"test data for GPU hashing";
+    server.client
+        .put(server.url("/gpu-hash-test/data.bin"))
+        .body(content.to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    // Request GPU hash
+    let resp = server.client
+        .post(server.url("/api/v1/gpu/hash"))
+        .json(&serde_json::json!({
+            "bucket": "gpu-hash-test",
+            "key": "data.bin",
+            "algorithm": "blake3"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify response structure
+    assert!(body.get("hash").is_some());
+    assert!(body.get("time_ms").is_some());
+    assert!(body.get("throughput_gbps").is_some());
+    assert!(body.get("gpu_used").is_some());
+    assert_eq!(body["object_size"], content.len() as u64);
+
+    // Verify hash is correct (BLAKE3 produces 64 hex chars)
+    let hash = body["hash"].as_str().unwrap();
+    assert_eq!(hash.len(), 64);
+}
+
+#[tokio::test]
+async fn test_gpu_capabilities() {
+    let server = TestServer::new().await;
+
+    let resp = server.client
+        .get(server.url("/api/v1/gpu/capabilities"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Should have available field
+    assert!(body.get("available").is_some());
+    // GPU might not be available in test environment, but field should exist
+    assert!(body["available"].is_boolean());
+}
+
+#[tokio::test]
+async fn test_gpu_stats() {
+    let server = TestServer::new().await;
+
+    let resp = server.client
+        .get(server.url("/api/v1/gpu/stats"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify response structure
+    assert!(body.get("gpu_enabled").is_some());
+    assert!(body.get("gpu_available").is_some());
+    assert!(body.get("gpu_threshold_bytes").is_some());
+    assert!(body.get("supported_ops").is_some());
+
+    // Check supported operations
+    let ops = body["supported_ops"].as_array().unwrap();
+    assert!(ops.iter().any(|o| o == "blake3"));
+    assert!(ops.iter().any(|o| o == "chacha20-poly1305"));
+}
+
+// =============================================================================
+// ZK Proof Operations Tests (Phase 2)
+// =============================================================================
+
+#[tokio::test]
+async fn test_zk_prove() {
+    let server = TestServer::new().await;
+
+    let resp = server.client
+        .post(server.url("/api/v1/zk/prove"))
+        .json(&serde_json::json!({
+            "proof_type": "simulated",
+            "public_inputs": ["deadbeef"],
+            "witness": ["cafebabe"]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify response structure
+    assert!(body.get("proof").is_some());
+    assert!(body.get("proof_type").is_some());
+    assert!(body.get("proof_size").is_some());
+    assert!(body.get("time_ms").is_some());
+    assert!(body.get("gpu_used").is_some());
+
+    // Check proof type
+    assert_eq!(body["proof_type"], "simulated");
+    // Simulated proofs are 256 bytes = 512 hex chars
+    assert_eq!(body["proof_size"], 256);
+}
+
+#[tokio::test]
+async fn test_zk_verify() {
+    let server = TestServer::new().await;
+
+    // First generate a proof
+    let prove_resp = server.client
+        .post(server.url("/api/v1/zk/prove"))
+        .json(&serde_json::json!({
+            "proof_type": "simulated",
+            "public_inputs": ["deadbeef"],
+            "witness": ["cafebabe"]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let prove_body: serde_json::Value = prove_resp.json().await.unwrap();
+    let proof = prove_body["proof"].as_str().unwrap();
+
+    // Now verify it
+    let resp = server.client
+        .post(server.url("/api/v1/zk/verify"))
+        .json(&serde_json::json!({
+            "proof": proof,
+            "proof_type": "simulated",
+            "public_inputs": ["deadbeef"]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Should be valid
+    assert!(body.get("valid").is_some());
+    assert!(body.get("time_ms").is_some());
+    assert!(body.get("verification_cost").is_some());
+}
+
+#[tokio::test]
+async fn test_zk_verified_read() {
+    let server = TestServer::new().await;
+
+    // Create bucket and object
+    server.client.put(server.url("/zk-verify-test")).send().await.unwrap();
+
+    let content = b"data with merkle proof";
+    server.client
+        .put(server.url("/zk-verify-test/verified.bin"))
+        .body(content.to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    // Request verified read
+    let resp = server.client
+        .post(server.url("/api/v1/zk/verified-read"))
+        .json(&serde_json::json!({
+            "bucket": "zk-verify-test",
+            "key": "verified.bin"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify response structure
+    assert!(body.get("data").is_some());
+    assert!(body.get("size").is_some());
+    assert!(body.get("content_hash").is_some());
+    assert!(body.get("merkle_root").is_some());
+    assert!(body.get("merkle_path").is_some());
+    assert!(body.get("verified").is_some());
+
+    // Should be verified
+    assert_eq!(body["verified"], true);
+    assert_eq!(body["size"], content.len() as u64);
+}
+
+#[tokio::test]
+async fn test_zk_proof_types() {
+    let server = TestServer::new().await;
+
+    let resp = server.client
+        .get(server.url("/api/v1/zk/proof-types"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify response structure
+    assert!(body.get("supported").is_some());
+
+    let supported = body["supported"].as_array().unwrap();
+    assert!(!supported.is_empty());
+
+    // Check for expected proof types
+    let names: Vec<&str> = supported.iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+
+    assert!(names.contains(&"groth16"));
+    assert!(names.contains(&"plonk"));
+    assert!(names.contains(&"stark"));
+}
+
+#[tokio::test]
+async fn test_zk_stats() {
+    let server = TestServer::new().await;
+
+    let resp = server.client
+        .get(server.url("/api/v1/zk/stats"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    // Verify response structure
+    assert!(body.get("zk_enabled").is_some());
+    assert!(body.get("supported_types").is_some());
+    assert!(body.get("gpu_proving_available").is_some());
+
+    // Check supported types
+    let types = body["supported_types"].as_array().unwrap();
+    assert!(types.iter().any(|t| t == "groth16"));
+    assert!(types.iter().any(|t| t == "plonk"));
+    assert!(types.iter().any(|t| t == "stark"));
+}

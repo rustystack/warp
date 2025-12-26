@@ -4,8 +4,12 @@
 //! - EphemeralURL - generate time-limited access tokens
 //! - LazyGet - field-level access for checkpoint resume (56x faster)
 //! - CollectiveRead - distributed reads across MPI ranks
-//! - StreamChunked - streaming large objects
+//! - GpuOps - GPU-accelerated hashing and encryption (20+ GB/s)
+//! - ZkOps - Zero-knowledge proofs for verified storage
 //! - Stats - storage statistics
+
+pub mod gpu_ops;
+pub mod zk_ops;
 
 use axum::{
     extract::{Path, Query, State},
@@ -36,6 +40,17 @@ pub fn routes<B: StorageBackend>(state: AppState<B>) -> Router {
         .route("/api/v1/lazy/{bucket}/{*key}", post(lazy_get::<B>))
         // Collective read (RMPI integration)
         .route("/api/v1/collective/read", post(collective_read::<B>))
+        // GPU-accelerated operations
+        .route("/api/v1/gpu/hash", post(gpu_ops::gpu_hash::<B>))
+        .route("/api/v1/gpu/encrypt", post(gpu_ops::gpu_encrypt::<B>))
+        .route("/api/v1/gpu/capabilities", get(gpu_ops::gpu_capabilities::<B>))
+        .route("/api/v1/gpu/stats", get(gpu_ops::gpu_stats::<B>))
+        // Zero-knowledge proofs
+        .route("/api/v1/zk/prove", post(zk_ops::zk_prove::<B>))
+        .route("/api/v1/zk/verify", post(zk_ops::zk_verify::<B>))
+        .route("/api/v1/zk/verified-read", post(zk_ops::verified_read::<B>))
+        .route("/api/v1/zk/proof-types", get(zk_ops::zk_proof_types::<B>))
+        .route("/api/v1/zk/stats", get(zk_ops::zk_stats::<B>))
         // Stats and metrics
         .route("/api/v1/stats", get(get_stats::<B>))
         // Health checks

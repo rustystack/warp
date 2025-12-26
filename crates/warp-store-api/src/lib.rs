@@ -53,6 +53,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
+#[cfg(feature = "iam")]
+use axum::middleware;
 use dashmap::DashMap;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
@@ -63,6 +65,9 @@ use warp_store::{Store, StoreConfig, MetricsCollector};
 use warp_store::backend::{StorageBackend, MultipartUpload, PartInfo};
 use warp_store::bucket::LifecycleRule;
 use warp_store::events::NotificationConfiguration;
+
+#[cfg(feature = "iam")]
+use auth::IamManagers;
 
 /// API server configuration
 #[derive(Debug, Clone)]
@@ -84,6 +89,14 @@ pub struct ApiConfig {
 
     /// Region for S3 API
     pub region: String,
+
+    /// Enable IAM-based authentication (requires `iam` feature)
+    #[cfg(feature = "iam")]
+    pub enable_iam: bool,
+
+    /// Session TTL in seconds (default: 3600 = 1 hour)
+    #[cfg(feature = "iam")]
+    pub session_ttl_seconds: u64,
 }
 
 impl Default for ApiConfig {
@@ -95,6 +108,10 @@ impl Default for ApiConfig {
             access_key_id: None,
             secret_access_key: None,
             region: "us-east-1".to_string(),
+            #[cfg(feature = "iam")]
+            enable_iam: false,
+            #[cfg(feature = "iam")]
+            session_ttl_seconds: 3600,
         }
     }
 }
@@ -121,6 +138,10 @@ pub struct AppState<B: StorageBackend> {
 
     /// Notification configurations per bucket (bucket_name -> NotificationConfiguration)
     notification_configs: Arc<DashMap<String, NotificationConfiguration>>,
+
+    /// IAM managers for authentication and authorization
+    #[cfg(feature = "iam")]
+    pub iam: Option<Arc<IamManagers>>,
 }
 
 impl<B: StorageBackend> Clone for AppState<B> {
@@ -133,6 +154,8 @@ impl<B: StorageBackend> Clone for AppState<B> {
             parts: Arc::clone(&self.parts),
             lifecycle_rules: Arc::clone(&self.lifecycle_rules),
             notification_configs: Arc::clone(&self.notification_configs),
+            #[cfg(feature = "iam")]
+            iam: self.iam.clone(),
         }
     }
 }
@@ -218,6 +241,13 @@ pub struct ApiServer<B: StorageBackend> {
 impl ApiServer<warp_store::backend::LocalBackend> {
     /// Create a new API server with default local backend
     pub async fn new(store: Store<warp_store::backend::LocalBackend>, config: ApiConfig) -> Self {
+        #[cfg(feature = "iam")]
+        let iam = if config.enable_iam {
+            Some(Arc::new(IamManagers::with_ttl(config.session_ttl_seconds)))
+        } else {
+            None
+        };
+
         Self {
             state: AppState {
                 store: Arc::new(store),
@@ -227,6 +257,8 @@ impl ApiServer<warp_store::backend::LocalBackend> {
                 parts: Arc::new(DashMap::new()),
                 lifecycle_rules: Arc::new(DashMap::new()),
                 notification_configs: Arc::new(DashMap::new()),
+                #[cfg(feature = "iam")]
+                iam,
             },
         }
     }
@@ -235,6 +267,13 @@ impl ApiServer<warp_store::backend::LocalBackend> {
 impl<B: StorageBackend> ApiServer<B> {
     /// Create with custom backend
     pub fn with_backend(store: Store<B>, config: ApiConfig) -> Self {
+        #[cfg(feature = "iam")]
+        let iam = if config.enable_iam {
+            Some(Arc::new(IamManagers::with_ttl(config.session_ttl_seconds)))
+        } else {
+            None
+        };
+
         Self {
             state: AppState {
                 store: Arc::new(store),
@@ -244,12 +283,21 @@ impl<B: StorageBackend> ApiServer<B> {
                 parts: Arc::new(DashMap::new()),
                 lifecycle_rules: Arc::new(DashMap::new()),
                 notification_configs: Arc::new(DashMap::new()),
+                #[cfg(feature = "iam")]
+                iam,
             },
         }
     }
 
     /// Create with custom backend and optional metrics
     pub fn with_backend_and_metrics(store: Store<B>, config: ApiConfig, metrics: Option<Arc<MetricsCollector>>) -> Self {
+        #[cfg(feature = "iam")]
+        let iam = if config.enable_iam {
+            Some(Arc::new(IamManagers::with_ttl(config.session_ttl_seconds)))
+        } else {
+            None
+        };
+
         Self {
             state: AppState {
                 store: Arc::new(store),
@@ -259,6 +307,8 @@ impl<B: StorageBackend> ApiServer<B> {
                 parts: Arc::new(DashMap::new()),
                 lifecycle_rules: Arc::new(DashMap::new()),
                 notification_configs: Arc::new(DashMap::new()),
+                #[cfg(feature = "iam")]
+                iam,
             },
         }
     }
@@ -277,7 +327,21 @@ impl<B: StorageBackend> ApiServer<B> {
             router = router.merge(native::routes(self.state.clone()));
         }
 
-        // Add middleware
+        // Add IAM middleware if enabled
+        #[cfg(feature = "iam")]
+        if let Some(ref iam) = self.state.iam {
+            router = router
+                .layer(middleware::from_fn_with_state(
+                    Arc::clone(iam),
+                    auth::iam_authz_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    Arc::clone(iam),
+                    auth::iam_auth_middleware,
+                ));
+        }
+
+        // Add standard middleware
         router
             .layer(TraceLayer::new_for_http())
             .layer(CorsLayer::permissive())
