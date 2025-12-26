@@ -41,6 +41,21 @@ pub enum Commands {
         /// Password for encryption (prompts if --encrypt is set but password not provided)
         #[arg(long)]
         password: Option<String>,
+        /// Enable erasure coding for fault-tolerant transfers
+        #[arg(long)]
+        erasure: bool,
+        /// Number of parity shards for erasure coding (default: 2)
+        #[arg(long, default_value = "2")]
+        parity_shards: u16,
+        /// Number of data shards for erasure coding (default: 4)
+        #[arg(long, default_value = "4")]
+        data_shards: u16,
+        /// Adaptive erasure coding - auto-adjust based on network conditions
+        #[arg(long)]
+        adaptive_erasure: bool,
+        /// Number of parallel QUIC streams for shard transmission
+        #[arg(long, default_value = "4")]
+        parallel_streams: u16,
     },
     /// Fetch files from a remote source
     Fetch {

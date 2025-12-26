@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 warp-core.workspace = true
 warp-crypto.workspace = true
+warp-ec.workspace = true
 warp-format.workspace = true
 warp-hash.workspace = true
 warp-io.workspace = true
@@ -27,6 +28,7 @@ bytes.workspace = true
 
 clap.workspace = true
 clap_complete = "4.5"
+futures = "0.3"
 indicatif.workspace = true
 console.workspace = true
 tokio.workspace = true

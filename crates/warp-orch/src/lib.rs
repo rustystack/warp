@@ -15,6 +15,7 @@
 //! - **Predict**: Predictive pre-positioning and access patterns
 //! - **Preposition**: Predictive pre-positioning execution
 
+pub mod adaptive_erasure;
 pub mod types;
 pub mod pool;
 pub mod progress;
@@ -47,6 +48,10 @@ pub use triggers::{TriggerConfig, TriggerGenerator};
 pub use preposition::{
     PrepositionConfig, PrepositionOp, PrepositionStatus, PrepositionMetrics,
     EdgeInfo, PrepositionPlanner, PrepositionExecutor, PrepositionManager,
+};
+pub use adaptive_erasure::{
+    AdaptiveErasure, AdaptiveErasureConfig, AdaptiveErasureStats,
+    ErasureParameters, NetworkMetrics,
 };
 
 use thiserror::Error;

@@ -2,10 +2,94 @@
 
 use crate::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+/// Erasure coding state for resumable transfers
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ErasureState {
+    /// Number of data shards per chunk
+    pub data_shards: usize,
+    /// Number of parity shards per chunk
+    pub parity_shards: usize,
+    /// Received shards per chunk: chunk_id -> received shard indices
+    pub received_shards: HashMap<u64, Vec<u16>>,
+    /// Decoded chunks that have been fully recovered
+    pub decoded_chunks: HashSet<u64>,
+}
+
+impl ErasureState {
+    /// Create a new erasure state
+    pub fn new(data_shards: usize, parity_shards: usize) -> Self {
+        Self {
+            data_shards,
+            parity_shards,
+            received_shards: HashMap::new(),
+            decoded_chunks: HashSet::new(),
+        }
+    }
+
+    /// Record a received shard
+    pub fn record_shard(&mut self, chunk_id: u64, shard_idx: u16) {
+        self.received_shards
+            .entry(chunk_id)
+            .or_default()
+            .push(shard_idx);
+    }
+
+    /// Check if enough shards received to decode a chunk
+    pub fn can_decode(&self, chunk_id: u64) -> bool {
+        if let Some(shards) = self.received_shards.get(&chunk_id) {
+            shards.len() >= self.data_shards
+        } else {
+            false
+        }
+    }
+
+    /// Mark chunk as decoded
+    pub fn mark_decoded(&mut self, chunk_id: u64) {
+        self.decoded_chunks.insert(chunk_id);
+    }
+
+    /// Check if chunk is already decoded
+    pub fn is_decoded(&self, chunk_id: u64) -> bool {
+        self.decoded_chunks.contains(&chunk_id)
+    }
+
+    /// Get chunks that are partially received but not yet decoded
+    pub fn partial_chunks(&self) -> Vec<u64> {
+        self.received_shards
+            .keys()
+            .filter(|&&chunk_id| !self.is_decoded(chunk_id))
+            .copied()
+            .collect()
+    }
+
+    /// Get missing shard indices for a chunk
+    pub fn missing_shards(&self, chunk_id: u64) -> Vec<u16> {
+        let total_shards = (self.data_shards + self.parity_shards) as u16;
+        let received: HashSet<u16> = self
+            .received_shards
+            .get(&chunk_id)
+            .map(|v| v.iter().copied().collect())
+            .unwrap_or_default();
+
+        (0..total_shards)
+            .filter(|idx| !received.contains(idx))
+            .collect()
+    }
+
+    /// Calculate how many more shards needed to decode a chunk
+    pub fn shards_needed(&self, chunk_id: u64) -> usize {
+        if let Some(shards) = self.received_shards.get(&chunk_id) {
+            self.data_shards.saturating_sub(shards.len())
+        } else {
+            self.data_shards
+        }
+    }
+}
 
 /// Transfer session
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +118,9 @@ pub struct Session {
     pub merkle_root: Option<[u8; 32]>,
     /// Error message if failed
     pub error_message: Option<String>,
+    /// Erasure coding state for resumable transfers
+    #[serde(default)]
+    pub erasure_state: Option<ErasureState>,
 }
 
 /// Session state
@@ -73,7 +160,63 @@ impl Session {
             transferred_bytes: 0,
             merkle_root: None,
             error_message: None,
+            erasure_state: None,
         }
+    }
+
+    /// Create a new session with erasure coding enabled
+    pub fn new_with_erasure(
+        source: PathBuf,
+        destination: String,
+        data_shards: usize,
+        parity_shards: usize,
+    ) -> Self {
+        let mut session = Self::new(source, destination);
+        session.erasure_state = Some(ErasureState::new(data_shards, parity_shards));
+        session
+    }
+
+    /// Initialize erasure state for an existing session
+    pub fn init_erasure(&mut self, data_shards: usize, parity_shards: usize) {
+        self.erasure_state = Some(ErasureState::new(data_shards, parity_shards));
+        self.updated_at = SystemTime::now();
+    }
+
+    /// Record a received shard for erasure-coded transfer
+    pub fn record_shard(&mut self, chunk_id: u64, shard_idx: u16) {
+        if let Some(ref mut state) = self.erasure_state {
+            state.record_shard(chunk_id, shard_idx);
+            self.updated_at = SystemTime::now();
+        }
+    }
+
+    /// Check if enough shards received to decode chunk
+    pub fn can_decode_chunk(&self, chunk_id: u64) -> bool {
+        self.erasure_state
+            .as_ref()
+            .map(|s| s.can_decode(chunk_id))
+            .unwrap_or(false)
+    }
+
+    /// Mark chunk as decoded (for erasure-coded transfers)
+    pub fn mark_chunk_decoded(&mut self, chunk_id: u64) {
+        if let Some(ref mut state) = self.erasure_state {
+            state.mark_decoded(chunk_id);
+        }
+        self.complete_chunk(chunk_id);
+    }
+
+    /// Get chunks that are partially received but not decoded
+    pub fn partial_erasure_chunks(&self) -> Vec<u64> {
+        self.erasure_state
+            .as_ref()
+            .map(|s| s.partial_chunks())
+            .unwrap_or_default()
+    }
+
+    /// Check if this is an erasure-coded transfer
+    pub fn is_erasure_coded(&self) -> bool {
+        self.erasure_state.is_some()
     }
 
     /// Save session to disk for resume

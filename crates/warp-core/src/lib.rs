@@ -22,7 +22,7 @@ pub use engine::{ProgressCallback, TransferConfig, TransferEngine, TransferProgr
 pub use warp_ec::ErasureConfig;
 pub use pipeline::TransferPipeline;
 pub use scheduler::ChunkScheduler;
-pub use session::{Session, SessionState};
+pub use session::{ErasureState, Session, SessionState};
 #[cfg(feature = "hpc-channels")]
 pub use channels::{
     StorageChannelBridge, SharedStorageChannelBridge,

@@ -24,8 +24,22 @@ async fn main() -> Result<()> {
 
     match cli.command {
         // ============= Transfer Commands =============
-        Commands::Send { source, destination, compress, no_gpu, encrypt, password } => {
-            warp_cli::commands::send::execute(&source, &destination, compress.as_deref(), no_gpu, encrypt, password.as_deref()).await
+        Commands::Send { source, destination, compress, no_gpu, encrypt, password, erasure, parity_shards, data_shards, adaptive_erasure, parallel_streams } => {
+            warp_cli::commands::send::execute(
+                &source,
+                &destination,
+                compress.as_deref(),
+                no_gpu,
+                encrypt,
+                password.as_deref(),
+                warp_cli::commands::send::ErasureOptions {
+                    enabled: erasure,
+                    data_shards,
+                    parity_shards,
+                    adaptive: adaptive_erasure,
+                    parallel_streams,
+                },
+            ).await
         }
         Commands::Fetch { source, destination, password } => {
             warp_cli::commands::fetch::execute(&source, &destination, password.as_deref()).await

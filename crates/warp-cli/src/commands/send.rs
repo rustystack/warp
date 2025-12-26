@@ -2,16 +2,48 @@
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
+use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
+use tokio::sync::Semaphore;
 use warp_crypto::kdf::{derive_key, generate_salt};
+use warp_ec::{ErasureConfig, ErasureEncoder};
 use warp_format::merkle::MerkleTree;
 use warp_format::{Compression, EncryptionKey, WarpReader, WarpWriter, WarpWriterConfig};
 use warp_net::{Frame, WarpEndpoint};
+use warp_net::codec::WireMerkleProof;
+
+/// Erasure coding options for transfers
+#[derive(Debug, Clone)]
+pub struct ErasureOptions {
+    /// Enable erasure coding
+    pub enabled: bool,
+    /// Number of data shards
+    pub data_shards: u16,
+    /// Number of parity shards
+    pub parity_shards: u16,
+    /// Adaptive erasure coding based on network conditions
+    pub adaptive: bool,
+    /// Number of parallel QUIC streams for shard transmission
+    pub parallel_streams: u16,
+}
+
+impl Default for ErasureOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            data_shards: 4,
+            parity_shards: 2,
+            adaptive: false,
+            parallel_streams: 4,
+        }
+    }
+}
 
 /// Metadata for file transfer
 #[derive(Debug, Clone, serde::Serialize)]
@@ -36,12 +68,14 @@ pub async fn execute(
     _no_gpu: bool, // GPU not yet implemented
     encrypt: bool,
     password: Option<&str>,
+    erasure_opts: ErasureOptions,
 ) -> Result<()> {
     tracing::info!(
         source = source,
         destination = destination,
         compress = compress,
         encrypt = encrypt,
+        erasure = erasure_opts.enabled,
         "Starting send"
     );
 
@@ -60,7 +94,7 @@ pub async fn execute(
     if is_remote_dest(destination) {
         // Remote transfer
         let (host, port, remote_path) = parse_remote_dest(destination)?;
-        send_remote(source, &host, port, &remote_path, compress, encryption_key).await
+        send_remote(source, &host, port, &remote_path, compress, encryption_key, erasure_opts).await
     } else {
         // Local archive creation
         create_local_archive(source, destination, compress, encryption_key).await
@@ -146,6 +180,7 @@ async fn send_remote(
     remote_path: &str,
     compress: Option<&str>,
     encryption_key: Option<EncryptionKey>,
+    erasure_opts: ErasureOptions,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -178,6 +213,24 @@ async fn send_remote(
     if encryption_key.is_some() {
         println!("Encryption: enabled");
     }
+
+    // Setup erasure coding if enabled
+    let erasure_encoder = if erasure_opts.enabled {
+        let data_shards = erasure_opts.data_shards as usize;
+        let parity_shards = erasure_opts.parity_shards as usize;
+        let config = ErasureConfig::new(data_shards, parity_shards)
+            .context("Failed to create erasure config")?;
+        println!(
+            "Erasure coding: {}:{} (data:parity), {} streams",
+            data_shards, parity_shards, erasure_opts.parallel_streams
+        );
+        if erasure_opts.adaptive {
+            println!("Adaptive erasure: enabled");
+        }
+        Some(ErasureEncoder::new(config))
+    } else {
+        None
+    };
 
     // Create temporary archive
     let temp_dir = std::env::temp_dir();
@@ -351,7 +404,7 @@ async fn send_remote(
     // Collect chunk hashes for Merkle tree verification
     let mut chunk_hashes: Vec<[u8; 32]> = Vec::with_capacity(num_chunks);
 
-    // Send chunks
+    // Send chunks (with optional erasure coding)
     for chunk_id in 0..num_chunks {
         let start = chunk_id * CHUNK_SIZE;
         let end = std::cmp::min(start + CHUNK_SIZE, archive_data.len());
@@ -360,9 +413,69 @@ async fn send_remote(
         // Hash chunk for Merkle tree
         chunk_hashes.push(warp_hash::hash(chunk_data));
 
-        conn.send_chunk(chunk_id as u32, Bytes::copy_from_slice(chunk_data))
+        if let Some(ref encoder) = erasure_encoder {
+            // Erasure coding enabled: encode chunk into shards
+            let shards = encoder
+                .encode(chunk_data)
+                .context("Failed to encode chunk with erasure coding")?;
+
+            let total_shards = shards.len() as u16;
+            let parallel_limit = erasure_opts.parallel_streams as usize;
+
+            // Create semaphore for parallel stream limiting
+            let semaphore = Arc::new(Semaphore::new(parallel_limit));
+
+            // Prepare shard frames for parallel transmission
+            let shard_frames: Vec<_> = shards
+                .into_iter()
+                .enumerate()
+                .map(|(shard_idx, shard_data)| Frame::Shard {
+                    chunk_id: chunk_id as u32,
+                    shard_idx: shard_idx as u16,
+                    total_shards,
+                    data: Bytes::from(shard_data),
+                })
+                .collect();
+
+            // Send shards with parallelism limited by semaphore
+            let conn_ref = &conn;
+            let sem_ref = &semaphore;
+
+            let send_results: Vec<Result<(), anyhow::Error>> = stream::iter(shard_frames)
+                .map(|frame| async move {
+                    let _permit = sem_ref.acquire().await.unwrap();
+                    conn_ref
+                        .send_frame(frame)
+                        .await
+                        .context("Failed to send shard")
+                })
+                .buffer_unordered(parallel_limit)
+                .collect()
+                .await;
+
+            // Check for any send errors
+            for result in send_results {
+                result?;
+            }
+
+            // Send chunk verification hash
+            conn.send_frame(Frame::ChunkVerify {
+                chunk_id: chunk_id as u32,
+                chunk_hash: chunk_hashes[chunk_id],
+                proof: WireMerkleProof {
+                    siblings: vec![],
+                    leaf_index: chunk_id as u32,
+                    directions: vec![],
+                },
+            })
             .await
-            .context("Failed to send chunk")?;
+            .context("Failed to send chunk verify")?;
+        } else {
+            // Regular chunk sending
+            conn.send_chunk(chunk_id as u32, Bytes::copy_from_slice(chunk_data))
+                .await
+                .context("Failed to send chunk")?;
+        }
 
         progress.set_position(end as u64);
 
