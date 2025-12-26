@@ -4,14 +4,27 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "GPU acceleration primitives for warp (CUDA via cudarc)"
+description = "GPU acceleration primitives for warp (CUDA and Metal backends)"
 
 [features]
-default = ["cuda-12060"]
-cuda-12060 = ["cudarc/cuda-12060"]
+default = ["cuda"]
+# CUDA backend for NVIDIA GPUs (cudarc 0.18.2)
+cuda = ["cudarc"]
+cuda-12060 = ["cuda", "cudarc/cuda-12060"]
+# Metal backend for Apple GPUs (objc2-metal 0.3.2 - macOS/iOS)
+metal = ["dep:objc2", "dep:objc2-foundation", "dep:objc2-metal", "dep:objc2-quartz-core"]
 
 [dependencies]
-cudarc = { workspace = true, features = ["cuda-12060", "dynamic-loading", "nvrtc"] }
+# CUDA backend (optional) - cudarc 0.18.2
+cudarc = { workspace = true, features = ["cuda-12060", "dynamic-loading", "nvrtc"], optional = true }
+
+# Metal backend (optional, macOS only) - objc2-metal 0.3.2
+# Using objc2 ecosystem (modern replacement for deprecated metal-rs)
+objc2 = { workspace = true, optional = true }
+objc2-foundation = { workspace = true, optional = true }
+objc2-metal = { workspace = true, optional = true }
+objc2-quartz-core = { workspace = true, optional = true }
+
 thiserror = { workspace = true }
 tracing = { workspace = true }
 bytes = { workspace = true }
@@ -19,7 +32,7 @@ blake3 = { workspace = true }
 chacha20poly1305 = { workspace = true }
 poly1305 = "0.8"
 chacha20 = "0.9"
-rayon.workspace = true
+rayon = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

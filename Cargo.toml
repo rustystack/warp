@@ -119,8 +119,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5.0"
 
-# GPU (optional) - cudarc 0.18+ uses CudaContext instead of CudaDevice
-cudarc = { version = "0.18", default-features = false, features = ["driver", "nvrtc"] }
+# GPU (optional) - cudarc 0.18.2 uses CudaContext instead of CudaDevice
+cudarc = { version = "0.18.2", default-features = false, features = ["driver", "nvrtc"] }
+
+# Apple Metal GPU (optional) - objc2-metal is the modern replacement for deprecated metal-rs
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-metal = "0.3.2"
+objc2-quartz-core = "0.3"
 
 # Testing
 criterion = { version = "0.5", features = ["html_reports"] }

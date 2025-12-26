@@ -4,8 +4,12 @@
 //! implemented by higher-level crates (warp-hash, warp-crypto, warp-compress).
 //! Each trait supports both GPU and CPU fallback implementations.
 
-use crate::{GpuContext, Result};
+use crate::Result;
 use rayon::prelude::*;
+
+#[cfg(feature = "cuda")]
+use crate::GpuContext;
+#[cfg(feature = "cuda")]
 use std::sync::Arc;
 
 /// Base trait for GPU-accelerated operations
@@ -14,6 +18,7 @@ use std::sync::Arc;
 /// - Context management
 /// - Size thresholds for GPU vs CPU
 /// - Capability queries
+#[cfg(feature = "cuda")]
 pub trait GpuOp: Send + Sync {
     /// Get the GPU context
     fn context(&self) -> &Arc<GpuContext>;
@@ -30,6 +35,23 @@ pub trait GpuOp: Send + Sync {
     fn should_use_gpu(&self, input_size: usize) -> bool {
         input_size >= self.min_gpu_size()
             && self.context().has_sufficient_memory(input_size * 3)
+    }
+
+    /// Get operation name for logging/metrics
+    fn name(&self) -> &'static str;
+}
+
+/// Base trait for GPU-accelerated operations (non-CUDA version)
+#[cfg(not(feature = "cuda"))]
+pub trait GpuOp: Send + Sync {
+    /// Get minimum size for GPU acceleration (bytes)
+    fn min_gpu_size(&self) -> usize {
+        64 * 1024 // 64KB default
+    }
+
+    /// Check if input should use GPU based on size
+    fn should_use_gpu(&self, input_size: usize) -> bool {
+        input_size >= self.min_gpu_size()
     }
 
     /// Get operation name for logging/metrics

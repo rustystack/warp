@@ -6,8 +6,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// GPU operation errors
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// CUDA device initialization failed
-    #[error("Failed to initialize CUDA device {device_id}: {message}")]
+    /// GPU device initialization failed
+    #[error("Failed to initialize GPU device {device_id}: {message}")]
     DeviceInit {
         /// Device ordinal
         device_id: usize,
@@ -18,6 +18,14 @@ pub enum Error {
     /// CUDA operation failed
     #[error("CUDA operation failed: {0}")]
     CudaOperation(String),
+
+    /// Metal operation failed
+    #[error("Metal operation failed: {0}")]
+    MetalOperation(String),
+
+    /// Shader compilation failed
+    #[error("Shader compilation failed: {0}")]
+    ShaderCompilation(String),
 
     /// Memory allocation failed
     #[error("GPU memory allocation failed: {size} bytes requested, {available} bytes available")]
@@ -85,11 +93,18 @@ pub enum Error {
 }
 
 impl Error {
-    /// Create a device initialization error
+    /// Create a device initialization error from CUDA DriverError
+    #[cfg(feature = "cuda")]
     #[inline]
     pub fn device_init(device_id: usize, err: cudarc::driver::DriverError) -> Self {
         // DriverError doesn't implement Display in cudarc 0.18, use Debug format
         Self::DeviceInit { device_id, message: format!("{:?}", err) }
+    }
+
+    /// Create a device initialization error from a message
+    #[inline]
+    pub fn device_init_msg(device_id: usize, message: impl Into<String>) -> Self {
+        Self::DeviceInit { device_id, message: message.into() }
     }
 
     /// Create an out-of-memory error
@@ -121,6 +136,7 @@ impl Error {
 
 /// Convert cudarc DriverError to our Error type
 /// DriverError in cudarc 0.18 doesn't implement Display, so we use Debug format
+#[cfg(feature = "cuda")]
 impl From<cudarc::driver::DriverError> for Error {
     fn from(err: cudarc::driver::DriverError) -> Self {
         Error::CudaOperation(format!("{:?}", err))
