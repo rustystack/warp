@@ -1,0 +1,31 @@
+[package]
+name = "warp-chonkers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Chonkers algorithm for versioned data deduplication with provable guarantees"
+
+[dependencies]
+warp-hash.workspace = true
+bytes.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+dashmap.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+rmp-serde.workspace = true
+tracing.workspace = true
+smallvec = "1.13"
+parking_lot = "0.12"
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+rand.workspace = true
+tempfile.workspace = true
+
+# Benchmarks will be added in Phase 5
+# [[bench]]
+# name = "chonkers"
+# harness = false

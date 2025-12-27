@@ -41,6 +41,12 @@ pub use gpu_direct::{
     NvLinkTopology, P2PPath, GpuBufferHandle,
 };
 
+#[cfg(feature = "chonkers")]
+mod chonkers;
+
+#[cfg(feature = "chonkers")]
+pub use chonkers::{ChonkersBackend, DedupStats, GcResult};
+
 use async_trait::async_trait;
 
 use crate::key::ObjectKey;

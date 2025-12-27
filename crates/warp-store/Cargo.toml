@@ -21,7 +21,9 @@ wireguard = []
 rmpi = ["dep:rmpi"]
 # HPC-Channels integration for event publishing
 hpc-channels = ["dep:hpc-channels"]
-full = ["local", "portal", "parcode", "erasure", "gpu", "raft", "wireguard", "rmpi", "hpc-channels"]
+# Chonkers-based versioned deduplication backend
+chonkers = ["warp-chonkers"]
+full = ["local", "portal", "parcode", "erasure", "gpu", "raft", "wireguard", "rmpi", "hpc-channels", "chonkers"]
 
 [dependencies]
 # Core warp crates
@@ -32,6 +34,7 @@ warp-crypto = { workspace = true }
 # Optional integrations
 warp-gpu = { workspace = true, optional = true }
 warp-ec = { workspace = true, optional = true }
+warp-chonkers = { workspace = true, optional = true }
 portal-hub = { workspace = true, optional = true }
 portal-core = { workspace = true, optional = true }
 openraft = { workspace = true, optional = true }

@@ -5959,6 +5959,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "warp-chonkers"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "criterion",
+ "dashmap 6.1.0",
+ "parking_lot 0.12.5",
+ "proptest",
+ "rand 0.8.5",
+ "rayon",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tracing",
+ "warp-hash",
+]
+
+[[package]]
 name = "warp-cli"
 version = "0.1.0"
 dependencies = [
@@ -6346,6 +6367,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "warp-chonkers",
  "warp-core",
  "warp-crypto",
  "warp-ec",

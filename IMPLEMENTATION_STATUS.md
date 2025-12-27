@@ -104,11 +104,79 @@
 
 ---
 
+### 9. Chonkers Algorithm (warp-chonkers) - All Phases Complete
+- **Status:** DONE
+- **Files:** `crates/warp-chonkers/` (new crate)
+  - `src/lib.rs` - Main Chonkers API
+  - `src/config.rs` - ChonkersConfig with layer presets
+  - `src/chunk.rs` - ChunkId, ChunkWeight, Chunk types
+  - `src/layer.rs` - Layer processing
+  - `src/phases/balancing.rs` - Phase 1: Kitten merging
+  - `src/phases/caterpillar.rs` - Phase 2: Z-algorithm periodic detection
+  - `src/phases/diffbit.rs` - Phase 3: XOR priority merging
+  - `src/tree/mod.rs` - ChonkerTree hierarchical structure
+  - `src/tree/node.rs` - ChonkerNode with edit operations
+  - `src/tree/persist.rs` - Tree serialization and storage
+  - `src/dedup/mod.rs` - Deduplication module
+  - `src/dedup/registry.rs` - ChunkRegistry with reference counting
+  - `src/dedup/gc.rs` - Configurable garbage collection
+  - `src/version/mod.rs` - Versioning module
+  - `src/version/delta.rs` - Delta computation between versions
+  - `src/version/timeline.rs` - Version timeline with commits/checkout
+  - `src/simd.rs` - SIMD-accelerated kitten detection and priorities
+- **Tests:** 99 unit tests passing
+- **Key Features:**
+  - Content-addressed chunks (BLAKE3)
+  - Three-phase layer processing (Balancing, Caterpillar, Diffbit)
+  - Edit locality guarantee (single byte edit affects ≤7 boundaries)
+  - Configurable layer sizes with presets
+  - **ChonkerTree**: Hierarchical chunk representation
+  - **Tree diff**: Compute changes between versions
+  - **Persistence**: MessagePack serialization, file/memory stores
+  - **ChunkRegistry**: Reference-counted chunk storage with deduplication
+  - **ChunkStore trait**: Pluggable storage backends (memory, custom)
+  - **GarbageCollector**: Configurable GC with aggressive/conservative presets
+  - **Delta**: Efficient diff between versions with byte/chunk stats
+  - **VersionTimeline**: Git-like versioning with commits, refs, and history
+  - **SIMD**: AVX2/NEON accelerated kitten detection and priority computation
+
+### 10. Chonkers Integration with warp-store
+- **Status:** DONE
+- **Files:**
+  - `crates/warp-store/Cargo.toml` - Added `chonkers` feature and `warp-chonkers` dependency
+  - `crates/warp-store/src/backend/mod.rs` - Registered ChonkersBackend
+  - `crates/warp-store/src/backend/chonkers.rs` - Full ChonkersBackend implementation
+- **Features:**
+  - `StorageBackend` trait implementation (get, put, delete, list, head, buckets, multipart)
+  - Content-defined chunking with deduplication
+  - Chunk caching and sharded filesystem storage
+  - Reference counting for garbage collection
+  - Integration with VersionTimeline for versioning support
+- **Tests:** 5 integration tests passing
+- **Usage:**
+  ```rust
+  use warp_store::backend::ChonkersBackend;
+
+  // Create backend with default config
+  let backend = ChonkersBackend::new(Path::new("/data/store")).await?;
+
+  // Or with custom chunking config
+  use warp_chonkers::ChonkersConfig;
+  let config = ChonkersConfig::backup(); // Optimized for backups
+  let backend = ChonkersBackend::with_config(path, config).await?;
+
+  // Use standard StorageBackend API
+  backend.create_bucket("my-bucket").await?;
+  backend.put(&key, data, PutOptions::default()).await?;
+  let data = backend.get(&key).await?;
+  ```
+
+---
+
 ## Future Work (Optional)
 
-*All major tasks complete! Potential future enhancements:*
+*Potential future enhancements:*
 
-- Chonkers Algorithm (versioned data dedup)
 - OPRF Key Generation (security)
 - WaLLoC Compression (neural compression)
 - DPU Offload (hardware acceleration)
@@ -141,6 +209,11 @@
 │  warp-crypto │         warp-ec             │  warp-gpu │
 │  (Encryption)│    (Erasure Coding)         │  (CUDA)   │
 └──────────────┴─────────────────────────────┴───────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              │        warp-chonkers          │
+              │ (Versioned Dedup - In Progress)│
+              └───────────────────────────────┘
 ```
 
 ---
@@ -202,6 +275,37 @@ frame.encode(&mut buf)?;
 let decoded = Frame::decode(&mut buf)?;
 ```
 
+### warp-chonkers (Versioned Dedup) - In Progress
+```rust
+use warp_chonkers::{Chonkers, ChonkersConfig, Chunk, ChonkerTree};
+
+// Create chunker with default config (3 layers: 4KB, 16KB, 64KB)
+let config = ChonkersConfig::default();
+let chunker = Chonkers::new(config.clone());
+
+// Or use presets
+let chunker = Chonkers::new(ChonkersConfig::backup());  // Optimized for backups
+
+// Chunk data
+let chunks: Vec<Chunk> = chunker.chunk(&data)?;
+
+// Each chunk has content-addressed ID
+for chunk in &chunks {
+    println!("Chunk {}: {} bytes, ID: {}",
+        chunk.index, chunk.length, chunk.id.short_hex());
+}
+
+// Build hierarchical tree for versioning
+let tree1 = ChonkerTree::from_data(&data_v1, config.clone())?;
+let tree2 = ChonkerTree::from_data(&data_v2, config)?;
+
+// Compute diff between versions
+let diff = tree1.diff(&tree2);
+println!("Added: {}, Removed: {}, Unchanged: {}",
+    diff.added.len(), diff.removed.len(), diff.unchanged.len());
+println!("Dedup ratio: {:.1}%", diff.dedup_ratio() * 100.0);
+```
+
 ---
 
 ## Test Commands
@@ -214,8 +318,9 @@ cargo test --workspace
 cargo test -p warp-ec
 cargo test -p warp-format
 cargo test -p warp-net
+cargo test -p warp-chonkers
 
-# Run benchmarks (after creating them)
+# Run benchmarks
 cargo bench -p warp-ec
 
 # Build in release mode
