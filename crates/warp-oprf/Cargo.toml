@@ -1,0 +1,51 @@
+[package]
+name = "warp-oprf"
+description = "Oblivious Pseudorandom Functions for privacy-preserving operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["ristretto255"]
+ristretto255 = ["dep:curve25519-dalek", "dep:sha2"]
+opaque = ["dep:opaque-ke"]
+full = ["ristretto255", "opaque"]
+
+[dependencies]
+# Ristretto255 elliptic curve
+curve25519-dalek = { version = "4.1", optional = true }
+sha2 = { version = "0.10", optional = true }
+
+# OPAQUE protocol (RFC 9807) - optional
+opaque-ke = { version = "3.0", optional = true, default-features = false, features = ["ristretto255"] }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync"] }
+async-trait = { workspace = true }
+
+# Cryptography
+rand = { workspace = true }
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Serialization
+serde = { workspace = true }
+serde_bytes = "0.11"
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+hex = "0.4"
+
+# Internal crates
+warp-crypto = { workspace = true }
+warp-hash = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+proptest = { workspace = true }

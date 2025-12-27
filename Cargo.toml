@@ -28,6 +28,7 @@ members = [
     "crates/warp-ipc",
     "crates/warp-iam",
     "crates/warp-kms",
+    "crates/warp-oprf",
 ]
 
 [workspace.package]
@@ -71,6 +72,7 @@ warp-store-api = { path = "crates/warp-store-api" }
 warp-ipc = { path = "crates/warp-ipc" }
 warp-iam = { path = "crates/warp-iam" }
 warp-kms = { path = "crates/warp-kms" }
+warp-oprf = { path = "crates/warp-oprf" }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }

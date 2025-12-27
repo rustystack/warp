@@ -171,13 +171,54 @@
   let data = backend.get(&key).await?;
   ```
 
+### 11. OPRF Privacy-Preserving Protocols (warp-oprf)
+- **Status:** DONE
+- **Files:** `crates/warp-oprf/` (new crate)
+  - `src/lib.rs` - Crate exports
+  - `src/error.rs` - OprfError types
+  - `src/suite.rs` - CipherSuite configuration
+  - `src/oprf/` - Core OPRF client/server (Ristretto255)
+  - `src/dedup/` - Blind deduplication (BlindDedupClient, BlindDedupServer)
+  - `src/opaque/` - OPAQUE password-authenticated key exchange (RFC 9807)
+  - `src/private_kdf/` - Private key derivation with server assistance
+- **Libraries:** `curve25519-dalek` v4.1, `opaque-ke` v3.0 (optional)
+- **Tests:** 40 unit tests passing
+- **Key Features:**
+  - **Core OPRF:** Diffie-Hellman based with Ristretto255 curve
+    - Client blinds input: H(input)^r
+    - Server evaluates: (H(input)^r)^k = H(input)^(rk)
+    - Client unblinds: (H(input)^(rk))^(1/r) = H(input)^k
+  - **BlindDedup:** Content-blind deduplication - server helps deduplicate without seeing hashes
+  - **OPAQUE (types only):** Base types for password authentication (full protocol pending opaque-ke compatibility)
+  - **PrivateKDF:** Derive keys with server assistance without revealing input
+  - **Key rotation:** DedupKeyManager for managing multiple server keys
+  - **Rate limiting:** RateLimitedKdfServer for dictionary attack prevention
+  - **Zeroize:** All sensitive data zeroized on drop
+- **Usage:**
+  ```rust
+  use warp_oprf::{Ristretto255Server, Ristretto255Client, OprfServerTrait, OprfClientTrait};
+
+  // Server setup
+  let server = Ristretto255Server::with_key_id("prod-key-v1")?;
+  let public_key = server.public_key();
+
+  // Client: blind input
+  let client = Ristretto255Client::new(&public_key)?;
+  let (blinded, state) = client.blind(b"secret-input")?;
+
+  // Server: evaluate
+  let evaluation = server.evaluate(&blinded)?;
+
+  // Client: finalize (deterministic output for same input + server key)
+  let output = client.finalize(state, &evaluation)?;
+  ```
+
 ---
 
 ## Future Work (Optional)
 
 *Potential future enhancements:*
 
-- OPRF Key Generation (security)
 - WaLLoC Compression (neural compression)
 - DPU Offload (hardware acceleration)
 
@@ -210,10 +251,12 @@
 │  (Encryption)│    (Erasure Coding)         │  (CUDA)   │
 └──────────────┴─────────────────────────────┴───────────┘
                               │
-              ┌───────────────┴───────────────┐
-              │        warp-chonkers          │
-              │     (Versioned Dedup)         │
-              └───────────────────────────────┘
+      ┌───────────────────────┴───────────────────────┐
+      │                                               │
+┌─────┴─────────────┐               ┌─────────────────┴─────┐
+│   warp-chonkers   │               │       warp-oprf       │
+│  (Versioned Dedup)│               │  (Privacy-Preserving) │
+└───────────────────┘               └───────────────────────┘
 ```
 
 ---
@@ -275,6 +318,32 @@ frame.encode(&mut buf)?;
 let decoded = Frame::decode(&mut buf)?;
 ```
 
+### warp-oprf (Privacy-Preserving Protocols)
+```rust
+use warp_oprf::{Ristretto255Server, Ristretto255Client, OprfServerTrait, OprfClientTrait};
+use warp_oprf::dedup::{BlindDedupClient, BlindDedupServer};
+
+// Core OPRF flow
+let server = Ristretto255Server::with_key_id("key-v1")?;
+let client = Ristretto255Client::new(&server.public_key())?;
+
+let (blinded, state) = client.blind(b"input")?;
+let evaluation = server.evaluate(&blinded)?;
+let output = client.finalize(state, &evaluation)?;
+
+// Blind deduplication
+let dedup_server = BlindDedupServer::new("dedup-key")?;
+let dedup_client = BlindDedupClient::new(&dedup_server.public_key())?;
+
+let content_hash = warp_hash::hash(&data);
+let (request, state) = dedup_client.blind_hash(&content_hash)?;
+let response = dedup_server.evaluate(&request)?;
+let token = dedup_client.finalize(state, &response)?;
+
+// Token is deterministic for same content + server key
+// Use token to check dedup index without revealing content hash
+```
+
 ### warp-chonkers (Versioned Dedup)
 ```rust
 use warp_chonkers::{Chonkers, ChonkersConfig, Chunk, ChonkerTree};
@@ -319,6 +388,7 @@ cargo test -p warp-ec
 cargo test -p warp-format
 cargo test -p warp-net
 cargo test -p warp-chonkers
+cargo test -p warp-oprf
 
 # Run benchmarks
 cargo bench -p warp-ec
