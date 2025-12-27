@@ -212,7 +212,7 @@
                               │
               ┌───────────────┴───────────────┐
               │        warp-chonkers          │
-              │ (Versioned Dedup - In Progress)│
+              │     (Versioned Dedup)         │
               └───────────────────────────────┘
 ```
 
@@ -275,7 +275,7 @@ frame.encode(&mut buf)?;
 let decoded = Frame::decode(&mut buf)?;
 ```
 
-### warp-chonkers (Versioned Dedup) - In Progress
+### warp-chonkers (Versioned Dedup)
 ```rust
 use warp_chonkers::{Chonkers, ChonkersConfig, Chunk, ChonkerTree};
 
@@ -331,7 +331,7 @@ cargo build --release
 
 ## Git Status
 
-Last commit: `bfcf567` - feat: Add sparse Merkle verification, zero-copy QUIC, and erasure coding
+Last commit: `cfc592b` - feat(warp-chonkers): Add Chonkers algorithm with warp-store integration
 
 All changes pushed to `origin/main`.
 
@@ -343,7 +343,6 @@ Full research plan with additional options is at:
 `~/.claude/plans/sprightly-imagining-wall.md`
 
 Additional options not yet implemented:
-- Chonkers Algorithm (versioned data dedup)
 - OPRF Key Generation (security)
 - WaLLoC Compression (neural compression)
 - DPU Offload (hardware acceleration)
