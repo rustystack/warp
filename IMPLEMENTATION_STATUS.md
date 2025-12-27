@@ -250,13 +250,64 @@
   backend.put(&key, data, PutOptions::default()).await?;
   ```
 
+### 13. WaLLoC Neural Compression (warp-neural)
+- **Status:** DONE
+- **Files:** `crates/warp-neural/` (new crate)
+  - `src/lib.rs` - Crate exports and public API
+  - `src/error.rs` - Neural-specific error types
+  - `src/header.rs` - WLOC format (22-byte header)
+  - `src/model/mod.rs` - Model management module
+  - `src/model/presets.rs` - ModelPreset (Rgb16x, Stereo5x, Generic, Custom)
+  - `src/model/session.rs` - SessionCache (thread-safe ONNX session management)
+  - `src/detection/mod.rs` - Content detection module
+  - `src/detection/classifier.rs` - ContentClassifier, ContentType, SuitabilityScore
+  - `src/compressor/mod.rs` - Compressor module
+  - `src/compressor/walloc.rs` - WallocCompressor (Wavelet Learned Lossy Compression)
+  - `src/compressor/adaptive.rs` - AdaptiveNeuralCompressor (auto neural/lossless)
+  - `src/compressor/batch.rs` - BatchNeuralCompressor (parallel processing)
+- **Libraries:** `ort` v2.0.0-rc.10 (ONNX Runtime), `ndarray` v0.16
+- **Tests:** 44 unit tests passing
+- **Key Features:**
+  - **WaLLoC Algorithm:** Wavelet transform → shallow autoencoder → entropy coding
+    - 12-28× compression ratios (lossy) vs 2-4× (zstd lossless)
+  - **Content Classification:** Entropy analysis, magic byte detection
+    - ContentType: ImageLike, AudioLike, Scientific, Text, Incompressible, Unknown
+  - **Model Presets:** Rgb16x (images), Stereo5x (audio), Generic, Custom
+  - **ONNX Runtime:** GPU (CUDA) and CPU execution providers
+  - **Adaptive Compression:** Auto-selects neural vs lossless based on content
+  - **Fallback-safe:** Works without ONNX models (falls back to zstd)
+  - **WLOC Header:** 22-byte format with magic, version, flags, sizes
+- **Usage:**
+  ```rust
+  use warp_neural::{WallocCompressor, AdaptiveNeuralCompressor, QualityConfig};
+  use warp_compress::Compressor;
+
+  // Basic neural compression (with fallback)
+  let compressor = WallocCompressor::fallback_only()?;
+  let compressed = compressor.compress(&data)?;
+  let restored = compressor.decompress(&compressed)?;
+
+  // With quality settings
+  let compressor = WallocCompressor::with_quality(QualityConfig::high_quality())?;
+
+  // Adaptive mode (auto-selects neural vs lossless)
+  let adaptive = AdaptiveNeuralCompressor::new()?;
+  let compressed = adaptive.compress(&data)?;
+
+  // Content classification
+  use warp_neural::ContentClassifier;
+  let classifier = ContentClassifier::new();
+  let score = classifier.analyze(&data);
+  println!("Content: {:?}, Neural suitable: {}",
+      score.content_type, score.score);
+  ```
+
 ---
 
 ## Future Work (Optional)
 
 *Potential future enhancements:*
 
-- WaLLoC Compression (neural compression)
 - DPU Offload (hardware acceleration)
 
 ---
@@ -288,12 +339,12 @@
 │  (Encryption)│    (Erasure Coding)         │  (CUDA)   │
 └──────────────┴─────────────────────────────┴───────────┘
                               │
-      ┌───────────────────────┴───────────────────────┐
-      │                                               │
-┌─────┴─────────────┐               ┌─────────────────┴─────┐
-│   warp-chonkers   │               │       warp-oprf       │
-│  (Versioned Dedup)│               │  (Privacy-Preserving) │
-└───────────────────┘               └───────────────────────┘
+      ┌───────────────────────┼───────────────────────┐
+      │                       │                       │
+┌─────┴─────────────┐ ┌───────┴───────┐ ┌─────────────┴─────┐
+│   warp-chonkers   │ │  warp-neural  │ │     warp-oprf     │
+│  (Versioned Dedup)│ │ (WaLLoC/ONNX) │ │(Privacy-Preserving)│
+└───────────────────┘ └───────────────┘ └───────────────────┘
 ```
 
 ---
@@ -426,6 +477,7 @@ cargo test -p warp-format
 cargo test -p warp-net
 cargo test -p warp-chonkers
 cargo test -p warp-oprf
+cargo test -p warp-neural
 
 # Run blind dedup integration tests
 cargo test -p warp-store --features "chonkers,blind-dedup" blind_dedup
@@ -453,6 +505,4 @@ Full research plan with additional options is at:
 `~/.claude/plans/sprightly-imagining-wall.md`
 
 Additional options not yet implemented:
-- OPRF Key Generation (security)
-- WaLLoC Compression (neural compression)
 - DPU Offload (hardware acceleration)

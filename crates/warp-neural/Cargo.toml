@@ -1,0 +1,54 @@
+[package]
+name = "warp-neural"
+description = "Neural compression (WaLLoC) for warp with ONNX Runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["cpu"]
+cpu = []
+cuda = ["ort/cuda"]
+tensorrt = ["cuda", "ort/tensorrt"]
+
+[dependencies]
+# ONNX Runtime for neural inference
+ort = { workspace = true }
+
+# Numerical arrays for tensor operations
+ndarray = { workspace = true }
+
+# Internal crates
+warp-compress = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Parallelism
+rayon = { workspace = true }
+
+# Bytes handling
+bytes = { workspace = true }
+
+# Thread-safe primitives
+parking_lot = { workspace = true }
+once_cell = { workspace = true }
+
+# Serialization (for model configs)
+serde = { workspace = true }
+
+# Path expansion
+shellexpand = { workspace = true }
+
+# Compression for entropy coding
+zstd = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tempfile = { workspace = true }
+rand = { workspace = true }
