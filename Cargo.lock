@@ -2346,6 +2346,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -5135,6 +5136,7 @@ dependencies = [
  "argon2",
  "async-trait",
  "axum 0.7.9",
+ "bytemuck",
  "chrono",
  "clap",
  "clap_complete",
@@ -5637,6 +5639,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]
