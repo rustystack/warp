@@ -32,6 +32,10 @@ members = [
     "crates/warp-oprf",
     "crates/warp-dpu",
     "crates/warp-fs",
+    "crates/warp-gateway-common",
+    "crates/warp-nfs",
+    "crates/warp-smb",
+    "crates/warp-block",
 ]
 
 [workspace.package]
@@ -79,6 +83,10 @@ warp-oprf = { path = "crates/warp-oprf" }
 warp-neural = { path = "crates/warp-neural" }
 warp-dpu = { path = "crates/warp-dpu" }
 warp-fs = { path = "crates/warp-fs" }
+warp-gateway-common = { path = "crates/warp-gateway-common" }
+warp-nfs = { path = "crates/warp-nfs" }
+warp-smb = { path = "crates/warp-smb" }
+warp-block = { path = "crates/warp-block" }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
@@ -123,6 +131,9 @@ console = "0.15"
 # Error handling
 thiserror = "2.0"
 anyhow = "1.0"
+
+# Networking
+ipnet = "2.10"
 
 # Utilities
 bytes = "1.7"

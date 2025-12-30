@@ -1,0 +1,35 @@
+[package]
+name = "warp-nfs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "NFSv4.1 gateway for WARP storage with pNFS support"
+
+[dependencies]
+# WARP ecosystem
+warp-store = { path = "../warp-store" }
+warp-gateway-common = { path = "../warp-gateway-common" }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Concurrency
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+bytes = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Network utilities
+ipnet = "2.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }

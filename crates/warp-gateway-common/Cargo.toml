@@ -1,0 +1,39 @@
+[package]
+name = "warp-gateway-common"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Common abstractions for WARP protocol gateways (NFS, SMB, Block)"
+
+[dependencies]
+# WARP ecosystem
+warp-store = { path = "../warp-store" }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Concurrency
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+rkyv = "0.8"
+
+# Hashing
+blake3 = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Utilities
+bytes = { workspace = true }
+
+# IP network matching (for NFS/SMB access control)
+ipnet = "2.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
