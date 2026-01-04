@@ -28,12 +28,27 @@ impl ErasureEncoder {
     /// If data length is not evenly divisible by `data_shards`, it will be
     /// padded with zeros. The caller should track the original data length.
     pub fn encode(&self, data: &[u8]) -> Result<Vec<Vec<u8>>> {
+        debug_assert!(
+            self.config.data_shards() > 0,
+            "data_shards must be positive"
+        );
+        debug_assert!(
+            self.config.parity_shards() > 0,
+            "parity_shards must be positive"
+        );
+
         if data.is_empty() {
             return Err(Error::InvalidDataSize("Data cannot be empty".into()));
         }
 
         let shard_size = self.config.shard_size_for_data(data.len());
         let padded_size = self.config.padded_data_size(data.len());
+
+        debug_assert!(shard_size > 0, "shard_size must be positive");
+        debug_assert!(
+            padded_size >= data.len(),
+            "padded_size must be >= data.len()"
+        );
 
         // Pad data if necessary
         let padded_data = if data.len() == padded_size {
@@ -65,10 +80,7 @@ impl ErasureEncoder {
             .map_err(|e| Error::EncodingError(format!("Encoding failed: {}", e)))?;
 
         // Collect original shards (data shards)
-        let mut shards: Vec<Vec<u8>> = padded_data
-            .chunks(shard_size)
-            .map(|s| s.to_vec())
-            .collect();
+        let mut shards: Vec<Vec<u8>> = padded_data.chunks(shard_size).map(|s| s.to_vec()).collect();
 
         // Add recovery shards (parity shards)
         for recovery in result.recovery_iter() {
@@ -182,5 +194,71 @@ mod tests {
 
         // 1001 bytes -> 102 bytes per shard (even) -> 14 shards = 1428 bytes
         assert_eq!(encoder.encoded_size(1001), 1428);
+    }
+}
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use crate::decoder::ErasureDecoder;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: encode then decode (all shards present) recovers original data
+        #[test]
+        fn roundtrip_all_shards(data in prop::collection::vec(any::<u8>(), 1..1024)) {
+            let config = ErasureConfig::new(4, 2).unwrap();
+            let encoder = ErasureEncoder::new(config.clone());
+            let decoder = ErasureDecoder::new(config);
+
+            let shards = encoder.encode(&data).unwrap();
+            let shard_opts: Vec<Option<Vec<u8>>> = shards.into_iter().map(Some).collect();
+            let recovered = decoder.decode(&shard_opts).unwrap();
+
+            // Recovered data should match original (possibly padded)
+            prop_assert!(recovered.starts_with(&data));
+        }
+
+        /// Property: can recover from losing any 2 shards (with 4+2 config)
+        #[test]
+        fn roundtrip_with_missing_shards(
+            data in prop::collection::vec(any::<u8>(), 64..512),
+            missing1 in 0usize..6,
+            missing2 in 0usize..6,
+        ) {
+            // Ensure missing indices are different
+            prop_assume!(missing1 != missing2);
+
+            let config = ErasureConfig::new(4, 2).unwrap();
+            let encoder = ErasureEncoder::new(config.clone());
+            let decoder = ErasureDecoder::new(config);
+
+            let shards = encoder.encode(&data).unwrap();
+            let mut shard_opts: Vec<Option<Vec<u8>>> = shards.into_iter().map(Some).collect();
+
+            // Remove two shards
+            shard_opts[missing1] = None;
+            shard_opts[missing2] = None;
+
+            let recovered = decoder.decode(&shard_opts).unwrap();
+
+            // Recovered data should match original (possibly padded)
+            prop_assert!(recovered.starts_with(&data));
+        }
+
+        /// Property: shard count is always data_shards + parity_shards
+        #[test]
+        fn shard_count_invariant(
+            data in prop::collection::vec(any::<u8>(), 1..256),
+            data_shards in 2usize..16,
+            parity_shards in 1usize..8,
+        ) {
+            let config = ErasureConfig::new(data_shards, parity_shards).unwrap();
+            let encoder = ErasureEncoder::new(config);
+
+            let shards = encoder.encode(&data).unwrap();
+
+            prop_assert_eq!(shards.len(), data_shards + parity_shards);
+        }
     }
 }

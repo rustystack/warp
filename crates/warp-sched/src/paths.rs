@@ -21,7 +21,11 @@ pub struct PathConfig {
 
 impl Default for PathConfig {
     fn default() -> Self {
-        Self { k: 3, max_cost: 1.0, diversity_weight: 0.1 }
+        Self {
+            k: 3,
+            max_cost: 1.0,
+            diversity_weight: 0.1,
+        }
     }
 }
 
@@ -31,22 +35,38 @@ impl PathConfig {
     /// Panics if k == 0
     pub fn new(k: usize, max_cost: f32, diversity_weight: f32) -> Self {
         assert!(k > 0, "k must be at least 1");
-        Self { k, max_cost, diversity_weight: diversity_weight.clamp(0.0, 1.0) }
+        Self {
+            k,
+            max_cost,
+            diversity_weight: diversity_weight.clamp(0.0, 1.0),
+        }
     }
 
     /// Create config for high redundancy (k=5)
     pub fn high_redundancy() -> Self {
-        Self { k: 5, max_cost: 1.0, diversity_weight: 0.15 }
+        Self {
+            k: 5,
+            max_cost: 1.0,
+            diversity_weight: 0.15,
+        }
     }
 
     /// Create config for low latency (k=1, strict max_cost)
     pub fn low_latency() -> Self {
-        Self { k: 1, max_cost: 0.5, diversity_weight: 0.0 }
+        Self {
+            k: 1,
+            max_cost: 0.5,
+            diversity_weight: 0.0,
+        }
     }
 
     /// Create config for balanced performance (k=3, moderate filtering)
     pub fn balanced() -> Self {
-        Self { k: 3, max_cost: 0.8, diversity_weight: 0.1 }
+        Self {
+            k: 3,
+            max_cost: 0.8,
+            diversity_weight: 0.1,
+        }
     }
 
     /// Set the K value
@@ -84,24 +104,38 @@ impl PathSelection {
     /// Create a new PathSelection
     pub fn new(chunk_id: ChunkId, selected_edges: Vec<(EdgeIdx, f32)>) -> Self {
         let total_cost = selected_edges.iter().map(|(_, cost)| cost).sum();
-        Self { chunk_id, selected_edges, total_cost }
+        Self {
+            chunk_id,
+            selected_edges,
+            total_cost,
+        }
     }
 
     /// Create an empty selection (no valid paths)
     pub fn empty(chunk_id: ChunkId) -> Self {
-        Self { chunk_id, selected_edges: Vec::new(), total_cost: 0.0 }
+        Self {
+            chunk_id,
+            selected_edges: Vec::new(),
+            total_cost: 0.0,
+        }
     }
 
     /// Get the number of selected edges
     #[inline]
-    pub fn edge_count(&self) -> usize { self.selected_edges.len() }
+    pub fn edge_count(&self) -> usize {
+        self.selected_edges.len()
+    }
 
     /// Check if any paths were selected
     #[inline]
-    pub fn has_paths(&self) -> bool { !self.selected_edges.is_empty() }
+    pub fn has_paths(&self) -> bool {
+        !self.selected_edges.is_empty()
+    }
 
     /// Get the best (lowest cost) edge, if any
-    pub fn best_edge(&self) -> Option<(EdgeIdx, f32)> { self.selected_edges.first().copied() }
+    pub fn best_edge(&self) -> Option<(EdgeIdx, f32)> {
+        self.selected_edges.first().copied()
+    }
 
     /// Get just the edge indices without costs
     pub fn edge_indices(&self) -> Vec<EdgeIdx> {
@@ -110,7 +144,11 @@ impl PathSelection {
 
     /// Get the average cost of selected edges
     pub fn average_cost(&self) -> f32 {
-        if self.selected_edges.is_empty() { 0.0 } else { self.total_cost / self.selected_edges.len() as f32 }
+        if self.selected_edges.is_empty() {
+            0.0
+        } else {
+            self.total_cost / self.selected_edges.len() as f32
+        }
     }
 }
 
@@ -132,19 +170,29 @@ impl SelectionBatch {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or(std::time::Duration::ZERO)
             .as_millis() as u64;
-        Self { selections, generation, timestamp_ms }
+        Self {
+            selections,
+            generation,
+            timestamp_ms,
+        }
     }
 
     /// Create an empty batch
-    pub fn empty(generation: u64) -> Self { Self::new(Vec::new(), generation) }
+    pub fn empty(generation: u64) -> Self {
+        Self::new(Vec::new(), generation)
+    }
 
     /// Get the number of selections in the batch
     #[inline]
-    pub fn len(&self) -> usize { self.selections.len() }
+    pub fn len(&self) -> usize {
+        self.selections.len()
+    }
 
     /// Check if the batch is empty
     #[inline]
-    pub fn is_empty(&self) -> bool { self.selections.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.selections.is_empty()
+    }
 
     /// Get the number of selections with valid paths
     pub fn valid_selection_count(&self) -> usize {
@@ -152,17 +200,25 @@ impl SelectionBatch {
     }
 
     /// Get total aggregate cost across all selections
-    pub fn total_cost(&self) -> f32 { self.selections.iter().map(|s| s.total_cost).sum() }
+    pub fn total_cost(&self) -> f32 {
+        self.selections.iter().map(|s| s.total_cost).sum()
+    }
 
     /// Get average cost per selection (excluding empty selections)
     pub fn average_cost_per_selection(&self) -> f32 {
         let valid = self.valid_selection_count();
-        if valid == 0 { 0.0 } else { self.total_cost() / valid as f32 }
+        if valid == 0 {
+            0.0
+        } else {
+            self.total_cost() / valid as f32
+        }
     }
 }
 
 impl Default for SelectionBatch {
-    fn default() -> Self { Self::empty(0) }
+    fn default() -> Self {
+        Self::empty(0)
+    }
 }
 
 /// CPU implementation of K-best path selector
@@ -172,7 +228,9 @@ pub struct CpuPathSelector {
 
 impl CpuPathSelector {
     /// Create a new CPU path selector
-    pub fn new(config: PathConfig) -> Self { Self { config } }
+    pub fn new(config: PathConfig) -> Self {
+        Self { config }
+    }
 
     /// Select K-best paths for a single chunk
     pub fn select(&self, chunk_id: ChunkId, cost_matrix: &CpuCostMatrix) -> PathSelection {
@@ -183,7 +241,11 @@ impl CpuPathSelector {
     }
 
     /// Select K-best paths for multiple chunks in parallel
-    pub fn select_batch(&self, chunk_ids: &[ChunkId], cost_matrix: &CpuCostMatrix) -> SelectionBatch {
+    pub fn select_batch(
+        &self,
+        chunk_ids: &[ChunkId],
+        cost_matrix: &CpuCostMatrix,
+    ) -> SelectionBatch {
         let selections: Vec<PathSelection> = chunk_ids
             .par_iter()
             .map(|&chunk_id| self.select(chunk_id, cost_matrix))
@@ -192,7 +254,11 @@ impl CpuPathSelector {
     }
 
     /// Select K-best paths for all chunks in state
-    pub fn select_all(&self, cost_matrix: &CpuCostMatrix, state: &CpuStateBuffers) -> SelectionBatch {
+    pub fn select_all(
+        &self,
+        cost_matrix: &CpuCostMatrix,
+        state: &CpuStateBuffers,
+    ) -> SelectionBatch {
         let chunk_count = state.chunk_count();
         let chunk_ids: Vec<ChunkId> = (0..chunk_count)
             .filter_map(|i| state.get_chunk(i as u32).map(|_| ChunkId(i as u64)))
@@ -201,10 +267,14 @@ impl CpuPathSelector {
     }
 
     /// Get the current configuration
-    pub fn config(&self) -> &PathConfig { &self.config }
+    pub fn config(&self) -> &PathConfig {
+        &self.config
+    }
 
     /// Update the configuration
-    pub fn set_config(&mut self, config: PathConfig) { self.config = config; }
+    pub fn set_config(&mut self, config: PathConfig) {
+        self.config = config;
+    }
 }
 
 /// GPU-accelerated path selector (currently delegates to CPU)
@@ -214,10 +284,16 @@ pub struct PathSelector {
 
 impl PathSelector {
     /// Create a new GPU path selector
-    pub fn new(config: PathConfig) -> Self { Self { cpu: CpuPathSelector::new(config) } }
+    pub fn new(config: PathConfig) -> Self {
+        Self {
+            cpu: CpuPathSelector::new(config),
+        }
+    }
 
     /// Create from existing CPU selector
-    pub fn from_cpu(cpu: CpuPathSelector) -> Self { Self { cpu } }
+    pub fn from_cpu(cpu: CpuPathSelector) -> Self {
+        Self { cpu }
+    }
 
     /// Select K-best paths for a single chunk (delegates to CPU)
     pub fn select(&self, chunk_id: ChunkId, cost_matrix: &CostMatrix) -> PathSelection {
@@ -226,7 +302,8 @@ impl PathSelector {
 
     /// Select K-best paths for multiple chunks (delegates to CPU)
     pub fn select_batch(&self, chunk_ids: &[ChunkId], cost_matrix: &CostMatrix) -> SelectionBatch {
-        self.cpu.select_batch(chunk_ids, self.get_cpu_matrix(cost_matrix))
+        self.cpu
+            .select_batch(chunk_ids, self.get_cpu_matrix(cost_matrix))
     }
 
     /// Select K-best paths for all chunks (delegates to CPU)
@@ -235,18 +312,39 @@ impl PathSelector {
     }
 
     /// Get configuration
-    pub fn config(&self) -> &PathConfig { self.cpu.config() }
+    pub fn config(&self) -> &PathConfig {
+        self.cpu.config()
+    }
 
     /// Update configuration
-    pub fn set_config(&mut self, config: PathConfig) { self.cpu.set_config(config); }
+    pub fn set_config(&mut self, config: PathConfig) {
+        self.cpu.set_config(config);
+    }
 
     /// Get CPU selector reference
-    pub fn cpu(&self) -> &CpuPathSelector { &self.cpu }
+    pub fn cpu(&self) -> &CpuPathSelector {
+        &self.cpu
+    }
 
     /// Helper to extract CPU matrix from GPU wrapper
     #[inline]
     fn get_cpu_matrix<'a>(&self, cost_matrix: &'a CostMatrix) -> &'a CpuCostMatrix {
-        // SAFETY: CostMatrix wraps CpuCostMatrix as first field
+        // SAFETY: This pointer cast is valid because:
+        //
+        // 1. CostMatrix is a single-field struct: `struct CostMatrix { inner: CpuCostMatrix }`
+        //    (see cost.rs:384-386)
+        //
+        // 2. For single-field structs without #[repr], Rust guarantees the struct has
+        //    the same memory layout as its single field (transparent representation).
+        //    This means &CostMatrix and &CpuCostMatrix point to the same memory.
+        //
+        // 3. The lifetime 'a is preserved through the cast, ensuring the reference
+        //    remains valid for the same duration as the input reference.
+        //
+        // 4. Both types are read-only through shared references, so no aliasing
+        //    issues can occur.
+        //
+        // Alternative: Add `inner()` method to CostMatrix to avoid this cast entirely.
         unsafe { &*(cost_matrix as *const CostMatrix as *const CpuCostMatrix) }
     }
 }
@@ -262,13 +360,20 @@ mod tests {
         for i in 0..num_chunks {
             let mut hash = [0u8; 32];
             hash[0] = i as u8;
-            state.add_chunk(ChunkState::new(hash, 1024 * 1024, 128, 3)).unwrap();
+            state
+                .add_chunk(ChunkState::new(hash, 1024 * 1024, 128, 3))
+                .unwrap();
         }
         for i in 0..num_edges {
             let bw = 1_000_000_000 - (i as u64 * 100_000_000);
             let rtt = 10_000 + (i as u32 * 5_000);
             let health = (0.95 - (i as f32 * 0.1)).max(0.1);
-            state.add_edge(i as u32, EdgeStateGpu::new(EdgeIdx(i as u32), bw, rtt, health, 10)).unwrap();
+            state
+                .add_edge(
+                    i as u32,
+                    EdgeStateGpu::new(EdgeIdx(i as u32), bw, rtt, health, 10),
+                )
+                .unwrap();
         }
         state
     }
@@ -293,7 +398,10 @@ mod tests {
         assert_eq!(PathConfig::balanced().k, 3);
 
         // Builder pattern
-        let config = PathConfig::default().with_k(7).with_max_cost(0.6).with_diversity_weight(0.25);
+        let config = PathConfig::default()
+            .with_k(7)
+            .with_max_cost(0.6)
+            .with_diversity_weight(0.25);
         assert_eq!(config.k, 7);
         assert_eq!(config.max_cost, 0.6);
         assert_eq!(config.diversity_weight, 0.25);
@@ -305,7 +413,9 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "k must be at least 1")]
-    fn test_path_config_zero_k() { PathConfig::new(0, 1.0, 0.1); }
+    fn test_path_config_zero_k() {
+        PathConfig::new(0, 1.0, 0.1);
+    }
 
     #[test]
     fn test_path_config_serialization() {
@@ -368,7 +478,10 @@ mod tests {
 
     #[test]
     fn test_selection_batch_serialization() {
-        let batch = SelectionBatch::new(vec![PathSelection::new(ChunkId(0), vec![(EdgeIdx(0), 0.1)])], 99);
+        let batch = SelectionBatch::new(
+            vec![PathSelection::new(ChunkId(0), vec![(EdgeIdx(0), 0.1)])],
+            99,
+        );
         let serialized = rmp_serde::to_vec(&batch).unwrap();
         let de: SelectionBatch = rmp_serde::from_slice(&serialized).unwrap();
         assert_eq!(de.generation, batch.generation);
@@ -379,7 +492,9 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(2, 1.0, 0.0));
         let mut matrix = CpuCostMatrix::new(1, 3, CostConfig::default());
         let mut state = make_test_state(1, 3);
-        for i in 0..3 { state.add_replica(0, EdgeIdx(i)); }
+        for i in 0..3 {
+            state.add_replica(0, EdgeIdx(i));
+        }
         matrix.compute(&state);
 
         let sel = selector.select(ChunkId(0), &matrix);
@@ -403,7 +518,9 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(10, 1.0, 0.0));
         let mut matrix = CpuCostMatrix::new(1, 3, CostConfig::default());
         let mut state = make_test_state(1, 3);
-        for i in 0..3 { state.add_replica(0, EdgeIdx(i)); }
+        for i in 0..3 {
+            state.add_replica(0, EdgeIdx(i));
+        }
         matrix.compute(&state);
 
         let sel = selector.select(ChunkId(0), &matrix);
@@ -415,11 +532,15 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(5, 0.3, 0.0));
         let mut matrix = CpuCostMatrix::new(1, 5, CostConfig::default());
         let mut state = make_test_state(1, 5);
-        for i in 0..5 { state.add_replica(0, EdgeIdx(i)); }
+        for i in 0..5 {
+            state.add_replica(0, EdgeIdx(i));
+        }
         matrix.compute(&state);
 
         let sel = selector.select(ChunkId(0), &matrix);
-        for (_, cost) in &sel.selected_edges { assert!(*cost <= 0.3); }
+        for (_, cost) in &sel.selected_edges {
+            assert!(*cost <= 0.3);
+        }
     }
 
     #[test]
@@ -427,7 +548,9 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(5, 1.0, 0.0));
         let mut matrix = CpuCostMatrix::new(1, 5, CostConfig::default());
         let mut state = make_test_state(1, 5);
-        for i in 0..5 { state.add_replica(0, EdgeIdx(i)); }
+        for i in 0..5 {
+            state.add_replica(0, EdgeIdx(i));
+        }
         matrix.compute(&state);
 
         let sel = selector.select(ChunkId(0), &matrix);
@@ -441,7 +564,11 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(2, 1.0, 0.0));
         let mut matrix = CpuCostMatrix::new(3, 4, CostConfig::default());
         let mut state = make_test_state(3, 4);
-        for chunk in 0..3 { for edge in 0..3 { state.add_replica(chunk, EdgeIdx(edge)); } }
+        for chunk in 0..3 {
+            for edge in 0..3 {
+                state.add_replica(chunk, EdgeIdx(edge));
+            }
+        }
         matrix.compute(&state);
 
         let batch = selector.select_batch(&[ChunkId(0), ChunkId(1), ChunkId(2)], &matrix);
@@ -457,7 +584,11 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(3, 1.0, 0.0));
         let mut matrix = CpuCostMatrix::new(100, 10, CostConfig::default());
         let mut state = make_test_state(100, 10);
-        for chunk in 0..100 { for edge in 0..5 { state.add_replica(chunk, EdgeIdx(edge)); } }
+        for chunk in 0..100 {
+            for edge in 0..5 {
+                state.add_replica(chunk, EdgeIdx(edge));
+            }
+        }
         matrix.compute(&state);
 
         let chunk_ids: Vec<ChunkId> = (0..100).map(ChunkId).collect();
@@ -470,7 +601,11 @@ mod tests {
         let selector = CpuPathSelector::new(PathConfig::new(3, 1.0, 0.0));
         let mut matrix = CpuCostMatrix::new(5, 4, CostConfig::default());
         let mut state = make_test_state(5, 4);
-        for chunk in 0..5 { for edge in 0..3 { state.add_replica(chunk as u32, EdgeIdx(edge)); } }
+        for chunk in 0..5 {
+            for edge in 0..3 {
+                state.add_replica(chunk as u32, EdgeIdx(edge));
+            }
+        }
         matrix.compute(&state);
 
         let batch = selector.select_all(&matrix, &state);
@@ -506,7 +641,11 @@ mod tests {
         let selector = PathSelector::new(PathConfig::new(2, 1.0, 0.0));
         let mut matrix = CostMatrix::new(2, 3, CostConfig::default());
         let mut state = make_test_state(2, 3);
-        for chunk in 0..2 { for edge in 0..3 { state.add_replica(chunk, EdgeIdx(edge)); } }
+        for chunk in 0..2 {
+            for edge in 0..3 {
+                state.add_replica(chunk, EdgeIdx(edge));
+            }
+        }
         matrix.compute(&state);
 
         // select
@@ -534,9 +673,16 @@ mod tests {
     fn test_full_pipeline() {
         let selector = CpuPathSelector::new(PathConfig::new(3, 1.0, 0.0));
         let mut state = CpuStateBuffers::new(1, 5);
-        state.add_chunk(ChunkState::new([42; 32], 1024 * 1024, 128, 3)).unwrap();
+        state
+            .add_chunk(ChunkState::new([42; 32], 1024 * 1024, 128, 3))
+            .unwrap();
         for i in 0..5 {
-            state.add_edge(i, EdgeStateGpu::new(EdgeIdx(i), 1_000_000_000, 10_000 + i * 1000, 0.95, 10)).unwrap();
+            state
+                .add_edge(
+                    i,
+                    EdgeStateGpu::new(EdgeIdx(i), 1_000_000_000, 10_000 + i * 1000, 0.95, 10),
+                )
+                .unwrap();
             state.add_replica(0, EdgeIdx(i));
         }
         let mut matrix = CpuCostMatrix::new(1, 5, CostConfig::default());
@@ -551,10 +697,14 @@ mod tests {
     fn test_respects_edge_availability() {
         let selector = CpuPathSelector::new(PathConfig::new(5, 1.0, 0.0));
         let mut state = CpuStateBuffers::new(1, 3);
-        state.add_chunk(ChunkState::new([1; 32], 1024, 128, 3)).unwrap();
+        state
+            .add_chunk(ChunkState::new([1; 32], 1024, 128, 3))
+            .unwrap();
         for i in 0..3 {
             let mut edge = EdgeStateGpu::new(EdgeIdx(i), 1_000_000_000, 10_000, 0.95, 10);
-            if i == 1 { edge.status = 0; } // Offline
+            if i == 1 {
+                edge.status = 0;
+            } // Offline
             state.add_edge(i, edge).unwrap();
             state.add_replica(0, EdgeIdx(i));
         }
@@ -563,6 +713,8 @@ mod tests {
 
         let sel = selector.select(ChunkId(0), &matrix);
         assert_eq!(sel.edge_count(), 2);
-        for (edge_idx, _) in &sel.selected_edges { assert_ne!(edge_idx.0, 1); }
+        for (edge_idx, _) in &sel.selected_edges {
+            assert_ne!(edge_idx.0, 1);
+        }
     }
 }

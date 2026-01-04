@@ -59,7 +59,8 @@ impl TransferPipeline {
         let mut handles = Vec::new();
 
         for chunk_id in 0..chunk_count {
-            let permit = self.semaphore.clone().acquire_owned().await.unwrap();
+            let permit = self.semaphore.clone().acquire_owned().await
+                .expect("semaphore closed unexpectedly");
             let fut = processor(chunk_id as u64);
 
             let handle = tokio::spawn(async move {

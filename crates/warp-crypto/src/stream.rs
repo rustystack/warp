@@ -33,11 +33,11 @@
 //! assert_eq!(plain2, b"World!");
 //! ```
 
+use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305,
 };
-use chacha20poly1305::aead::generic_array::GenericArray;
 
 use crate::{Error, Result};
 
@@ -95,10 +95,16 @@ impl StreamCipher {
     /// # Returns
     /// Ciphertext with 16-byte Poly1305 tag appended
     pub fn encrypt_chunk(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
+        debug_assert!(
+            self.counter < u64::MAX,
+            "counter overflow would cause nonce reuse - catastrophic security failure"
+        );
+
         let nonce = self.derive_nonce();
         let nonce_ga = GenericArray::from_slice(&nonce);
 
-        let ciphertext = self.cipher
+        let ciphertext = self
+            .cipher
             .encrypt(nonce_ga, plaintext)
             .map_err(|e| Error::Encryption(format!("Chunk encryption failed: {}", e)))?;
 
@@ -124,7 +130,8 @@ impl StreamCipher {
         let nonce = self.derive_nonce();
         let nonce_ga = GenericArray::from_slice(&nonce);
 
-        let plaintext = self.cipher
+        let plaintext = self
+            .cipher
             .decrypt(nonce_ga, ciphertext)
             .map_err(|e| Error::Decryption(format!("Chunk decryption failed: {}", e)))?;
 
@@ -165,12 +172,16 @@ impl StreamCipher {
     ///
     /// # Panics
     /// Panics in debug builds if counter moves backward.
-    #[deprecated(since = "0.2.0", note = "Use skip_to_counter() which prevents nonce reuse")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use skip_to_counter() which prevents nonce reuse"
+    )]
     pub fn reset_counter(&mut self, counter: u64) {
         debug_assert!(
             counter >= self.counter,
             "SECURITY: Counter reset from {} to {} would cause nonce reuse!",
-            self.counter, counter
+            self.counter,
+            counter
         );
         self.counter = counter;
     }
@@ -250,8 +261,12 @@ impl StreamCipherBuilder {
     /// # Errors
     /// Returns error if key or nonce is not set
     pub fn build(self) -> Result<StreamCipher> {
-        let key = self.key.ok_or_else(|| Error::InvalidKey("Key not set".into()))?;
-        let nonce = self.nonce.ok_or_else(|| Error::InvalidKey("Nonce not set".into()))?;
+        let key = self
+            .key
+            .ok_or_else(|| Error::InvalidKey("Key not set".into()))?;
+        let nonce = self
+            .nonce
+            .ok_or_else(|| Error::InvalidKey("Nonce not set".into()))?;
 
         let mut cipher = StreamCipher::new(&key, &nonce);
         cipher.counter = self.initial_counter;
@@ -452,7 +467,9 @@ mod tests {
 
         assert_eq!(encrypted.len(), 3);
 
-        let decrypted = decryptor.decrypt_chunks(encrypted.iter().map(|c| c.as_slice())).unwrap();
+        let decrypted = decryptor
+            .decrypt_chunks(encrypted.iter().map(|c| c.as_slice()))
+            .unwrap();
 
         assert_eq!(decrypted[0], b"one");
         assert_eq!(decrypted[1], b"two");
@@ -502,18 +519,14 @@ mod tests {
 
     #[test]
     fn test_builder_missing_key() {
-        let result = StreamCipherBuilder::new()
-            .nonce([0x24u8; 12])
-            .build();
+        let result = StreamCipherBuilder::new().nonce([0x24u8; 12]).build();
 
         assert!(result.is_err());
     }
 
     #[test]
     fn test_builder_missing_nonce() {
-        let result = StreamCipherBuilder::new()
-            .key([0x42u8; 32])
-            .build();
+        let result = StreamCipherBuilder::new().key([0x42u8; 32]).build();
 
         assert!(result.is_err());
     }
@@ -532,5 +545,67 @@ mod tests {
         let nonce2 = cipher2.derive_nonce();
 
         assert_ne!(nonce1, nonce2);
+    }
+}
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Property: streaming encrypt/decrypt roundtrip for any data
+        #[test]
+        fn stream_roundtrip_single_chunk(
+            key in prop::array::uniform32(any::<u8>()),
+            nonce in prop::array::uniform12(any::<u8>()),
+            plaintext in prop::collection::vec(any::<u8>(), 0..4096),
+        ) {
+            let mut encryptor = StreamCipher::new(&key, &nonce);
+            let mut decryptor = StreamCipher::new(&key, &nonce);
+
+            let ciphertext = encryptor.encrypt_chunk(&plaintext).unwrap();
+            let decrypted = decryptor.decrypt_chunk(&ciphertext).unwrap();
+
+            prop_assert_eq!(plaintext, decrypted);
+        }
+
+        /// Property: streaming encrypt/decrypt roundtrip for multiple chunks
+        #[test]
+        fn stream_roundtrip_multiple_chunks(
+            key in prop::array::uniform32(any::<u8>()),
+            nonce in prop::array::uniform12(any::<u8>()),
+            chunks in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..10),
+        ) {
+            let mut encryptor = StreamCipher::new(&key, &nonce);
+            let mut decryptor = StreamCipher::new(&key, &nonce);
+
+            for chunk in &chunks {
+                let ciphertext = encryptor.encrypt_chunk(chunk).unwrap();
+                let decrypted = decryptor.decrypt_chunk(&ciphertext).unwrap();
+                prop_assert_eq!(chunk, &decrypted);
+            }
+
+            // Counter should match number of chunks processed
+            prop_assert_eq!(encryptor.counter() as usize, chunks.len());
+            prop_assert_eq!(decryptor.counter() as usize, chunks.len());
+        }
+
+        /// Property: counter always increments after encryption
+        #[test]
+        fn counter_increments_on_encrypt(
+            key in prop::array::uniform32(any::<u8>()),
+            nonce in prop::array::uniform12(any::<u8>()),
+            num_chunks in 1usize..100,
+        ) {
+            let mut cipher = StreamCipher::new(&key, &nonce);
+
+            for i in 0..num_chunks {
+                prop_assert_eq!(cipher.counter(), i as u64);
+                cipher.encrypt_chunk(b"test").unwrap();
+            }
+
+            prop_assert_eq!(cipher.counter(), num_chunks as u64);
+        }
     }
 }

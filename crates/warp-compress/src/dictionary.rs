@@ -36,11 +36,15 @@ impl Dictionary {
     /// ```
     pub fn train(samples: &[&[u8]], max_size: usize) -> Result<Self> {
         if samples.is_empty() {
-            return Err(Error::Compression("Cannot train dictionary from empty samples".into()));
+            return Err(Error::Compression(
+                "Cannot train dictionary from empty samples".into(),
+            ));
         }
 
         if max_size == 0 {
-            return Err(Error::Compression("Dictionary max_size must be greater than 0".into()));
+            return Err(Error::Compression(
+                "Dictionary max_size must be greater than 0".into(),
+            ));
         }
 
         // Collect all sample sizes for zstd training
@@ -58,13 +62,18 @@ impl Dictionary {
             .map_err(|e| Error::Compression(format!("Dictionary training failed: {}", e)))?;
 
         if dict_data.is_empty() {
-            return Err(Error::Compression("Dictionary training produced empty result".into()));
+            return Err(Error::Compression(
+                "Dictionary training produced empty result".into(),
+            ));
         }
 
         // Calculate dictionary ID (CRC32 of first 32 bytes or all if smaller)
         let id = Self::calculate_id(&dict_data);
 
-        Ok(Self { data: dict_data, id })
+        Ok(Self {
+            data: dict_data,
+            id,
+        })
     }
 
     /// Create a dictionary from raw bytes.
@@ -178,15 +187,15 @@ impl Compressor for DictZstdCompressor {
             return Ok(Vec::new());
         }
 
-        let mut encoder = zstd::stream::Encoder::with_prepared_dictionary(
-            Vec::new(),
-            &self.compress_dict,
-        ).map_err(|e| Error::Compression(format!("Failed to create encoder: {}", e)))?;
+        let mut encoder =
+            zstd::stream::Encoder::with_prepared_dictionary(Vec::new(), &self.compress_dict)
+                .map_err(|e| Error::Compression(format!("Failed to create encoder: {}", e)))?;
 
         std::io::copy(&mut std::io::Cursor::new(input), &mut encoder)
             .map_err(|e| Error::Compression(format!("Compression failed: {}", e)))?;
 
-        encoder.finish()
+        encoder
+            .finish()
             .map_err(|e| Error::Compression(format!("Failed to finish compression: {}", e)))
     }
 
@@ -198,7 +207,8 @@ impl Compressor for DictZstdCompressor {
         let mut decoder = zstd::stream::Decoder::with_prepared_dictionary(
             std::io::Cursor::new(input),
             &self.decompress_dict,
-        ).map_err(|e| Error::Decompression(format!("Failed to create decoder: {}", e)))?;
+        )
+        .map_err(|e| Error::Decompression(format!("Failed to create decoder: {}", e)))?;
 
         let mut output = Vec::new();
         std::io::copy(&mut decoder, &mut std::io::Cursor::new(&mut output))
@@ -212,7 +222,26 @@ impl Compressor for DictZstdCompressor {
     }
 }
 
-// Implement Send + Sync for thread safety
+// SAFETY: DictZstdCompressor is Send + Sync because:
+//
+// 1. level (i32):
+//    - Primitive type, trivially Send + Sync
+//
+// 2. compress_dict (zstd::dict::EncoderDictionary<'static>):
+//    - Created via `copy()` which owns the dictionary data
+//    - The 'static lifetime means no borrowed references
+//    - EncoderDictionary is immutable after construction
+//    - Used only via shared reference in compress() method
+//
+// 3. decompress_dict (zstd::dict::DecoderDictionary<'static>):
+//    - Same reasoning as compress_dict
+//    - Created via `copy()` which owns the dictionary data
+//    - Immutable after construction, used via shared reference
+//
+// Thread-safety guarantee: All fields are either primitive types or
+// immutable owned data. The compress() and decompress() methods take
+// &self and create new Encoder/Decoder instances per call, so there
+// is no shared mutable state between concurrent calls.
 unsafe impl Send for DictZstdCompressor {}
 unsafe impl Sync for DictZstdCompressor {}
 
@@ -259,7 +288,9 @@ mod tests {
         let regular_compressor = crate::ZstdCompressor::new(3).unwrap();
 
         // Test data similar to training samples
-        let test_data = r#"{"user_id": 999, "name": "TestUser", "email": "test@example.com", "active": true}"#.as_bytes();
+        let test_data =
+            r#"{"user_id": 999, "name": "TestUser", "email": "test@example.com", "active": true}"#
+                .as_bytes();
 
         let dict_compressed = dict_compressor.compress(test_data).unwrap();
         let regular_compressed = regular_compressor.compress(test_data).unwrap();
@@ -320,16 +351,21 @@ mod tests {
         let zeros = [0u8; 1000];
         let test_cases: Vec<&[u8]> = vec![
             b"Simple text",
-            b"",  // Empty data
-            &zeros,  // All zeros
-            &all_bytes,  // All byte values
-            b"{\"json\": true}",  // JSON-like
+            b"",                 // Empty data
+            &zeros,              // All zeros
+            &all_bytes,          // All byte values
+            b"{\"json\": true}", // JSON-like
         ];
 
         for data in test_cases {
             let compressed = compressor.compress(data).unwrap();
             let decompressed = compressor.decompress(&compressed).unwrap();
-            assert_eq!(data, decompressed.as_slice(), "Roundtrip failed for data len={}", data.len());
+            assert_eq!(
+                data,
+                decompressed.as_slice(),
+                "Roundtrip failed for data len={}",
+                data.len()
+            );
         }
     }
 

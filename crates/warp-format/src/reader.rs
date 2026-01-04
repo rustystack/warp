@@ -133,9 +133,20 @@ impl WarpReader {
     /// Call this method after opening if you need fast chunk verification
     /// but didn't use `open_with_verification`.
     pub fn build_verification_tree(&mut self) {
+        debug_assert!(
+            !self.chunk_index.is_empty(),
+            "chunk_index should not be empty when building verification tree"
+        );
+
         let hashes: Vec<[u8; 32]> = (0..self.chunk_index.len())
             .map(|i| self.chunk_index.get(i).unwrap().hash)
             .collect();
+
+        debug_assert_eq!(
+            hashes.len(),
+            self.chunk_index.len(),
+            "hash count must match chunk count"
+        );
 
         self.sparse_tree = Some(SparseMerkleTree::from_leaves(hashes));
     }

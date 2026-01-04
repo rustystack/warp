@@ -172,6 +172,12 @@ impl Frame {
     #[inline(always)]
     pub fn encode_chunk_fast(buf: &mut BytesMut, chunk_id: u32, data: &[u8]) {
         let payload_len = 8 + data.len();
+        debug_assert!(
+            payload_len <= MAX_PAYLOAD_SIZE as usize,
+            "chunk data exceeds MAX_PAYLOAD_SIZE: {} > {}",
+            payload_len,
+            MAX_PAYLOAD_SIZE
+        );
         buf.reserve(FrameHeader::SIZE + payload_len);
 
         // Header: type(1) + flags(1) + stream_id(2) + length(4)
@@ -218,7 +224,19 @@ impl Frame {
         total_shards: u16,
         data: &[u8],
     ) {
+        debug_assert!(
+            shard_idx < total_shards,
+            "shard_idx must be < total_shards: {} >= {}",
+            shard_idx,
+            total_shards
+        );
+        debug_assert!(total_shards > 0, "total_shards must be positive");
+
         let payload_len = 12 + data.len();
+        debug_assert!(
+            payload_len <= MAX_PAYLOAD_SIZE as usize,
+            "shard data exceeds MAX_PAYLOAD_SIZE"
+        );
         buf.reserve(FrameHeader::SIZE + payload_len);
 
         // Header

@@ -146,7 +146,7 @@ impl FrameBufferPool {
             // Fall back to global pool (requires lock)
             self.small
                 .lock()
-                .unwrap()
+                .expect("small buffer pool lock poisoned")
                 .pop()
                 .unwrap_or_else(|| BytesMut::with_capacity(SMALL_BUF_SIZE))
         });
@@ -163,7 +163,7 @@ impl FrameBufferPool {
         let buf = buf.unwrap_or_else(|| {
             self.medium
                 .lock()
-                .unwrap()
+                .expect("medium buffer pool lock poisoned")
                 .pop()
                 .unwrap_or_else(|| BytesMut::with_capacity(MEDIUM_BUF_SIZE))
         });
@@ -180,7 +180,7 @@ impl FrameBufferPool {
         let buf = buf.unwrap_or_else(|| {
             self.large
                 .lock()
-                .unwrap()
+                .expect("large buffer pool lock poisoned")
                 .pop()
                 .unwrap_or_else(|| BytesMut::with_capacity(LARGE_BUF_SIZE))
         });
@@ -226,7 +226,7 @@ impl FrameBufferPool {
                 BufferTier::Large => &self.large,
             };
 
-            let mut guard = pool.lock().unwrap();
+            let mut guard = pool.lock().expect("buffer pool lock poisoned");
             if guard.len() < MAX_POOL_SIZE {
                 guard.push(buf);
             }
@@ -237,9 +237,9 @@ impl FrameBufferPool {
     /// Get pool statistics
     pub fn stats(&self) -> PoolStats {
         PoolStats {
-            small_available: self.small.lock().unwrap().len(),
-            medium_available: self.medium.lock().unwrap().len(),
-            large_available: self.large.lock().unwrap().len(),
+            small_available: self.small.lock().expect("small pool lock poisoned").len(),
+            medium_available: self.medium.lock().expect("medium pool lock poisoned").len(),
+            large_available: self.large.lock().expect("large pool lock poisoned").len(),
         }
     }
 }

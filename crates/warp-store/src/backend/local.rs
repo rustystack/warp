@@ -48,6 +48,11 @@ pub struct LocalBackend {
 impl LocalBackend {
     /// Create a new local backend
     pub async fn new(root: &Path) -> Result<Self> {
+        debug_assert!(
+            !root.as_os_str().is_empty(),
+            "root path must not be empty"
+        );
+
         // Create root directories
         let buckets_dir = root.join("buckets");
         fs::create_dir_all(&buckets_dir).await?;

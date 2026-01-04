@@ -2373,6 +2373,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "dashmap 6.1.0",
+ "hostname",
  "once_cell",
  "rkyv 0.8.12",
  "serde",
@@ -4674,6 +4675,7 @@ dependencies = [
  "dashmap 6.1.0",
  "futures",
  "pin-project-lite",
+ "rand 0.8.5",
  "rayon",
  "thiserror 2.0.17",
  "tokio",
@@ -6534,6 +6536,7 @@ dependencies = [
  "thiserror 2.0.17",
  "warp-compress",
  "warp-crypto",
+ "warp-ec",
  "warp-hash",
  "warp-io",
  "warp-net",
@@ -6628,6 +6631,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "criterion",
+ "proptest",
  "rand 0.8.5",
  "rayon",
  "tempfile",

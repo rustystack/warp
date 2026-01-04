@@ -96,6 +96,17 @@ pub struct CpuChunkScheduler {
 impl CpuChunkScheduler {
     /// Creates a new CPU-based chunk scheduler.
     pub fn new(config: SchedulerConfig, max_chunks: usize, max_edges: usize) -> Self {
+        debug_assert!(max_chunks > 0, "max_chunks must be positive");
+        debug_assert!(max_edges > 0, "max_edges must be positive");
+        debug_assert!(
+            config.tick_interval_ms > 0,
+            "tick_interval_ms must be positive"
+        );
+        debug_assert!(
+            config.max_assignments_per_tick > 0,
+            "max_assignments_per_tick must be positive"
+        );
+
         let state_buffers = CpuStateBuffers::new(max_chunks, max_edges);
         let cost_matrix = CpuCostMatrix::new(max_chunks, max_edges, config.cost_config.clone());
         let path_selector = CpuPathSelector::new(config.path_config.clone());

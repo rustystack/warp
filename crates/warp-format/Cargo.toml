@@ -24,4 +24,5 @@ rand.workspace = true
 tempfile.workspace = true
 proptest.workspace = true
 warp-net.workspace = true
+warp-ec.workspace = true
 bytes.workspace = true

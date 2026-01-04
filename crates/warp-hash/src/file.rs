@@ -199,7 +199,11 @@ mod tests {
         .unwrap();
 
         // Should have multiple progress updates
-        assert!(progress_updates.len() >= 3, "Expected at least 3 progress updates, got {}", progress_updates.len());
+        assert!(
+            progress_updates.len() >= 3,
+            "Expected at least 3 progress updates, got {}",
+            progress_updates.len()
+        );
 
         // First should be 0, total
         assert_eq!(progress_updates[0], (0, data.len() as u64));
@@ -305,10 +309,14 @@ mod tests {
 
         let mut last_read = 0u64;
         hash_file_with_progress(file.path(), |read, total| {
-            assert!(read >= last_read, "Progress should be monotonically increasing");
+            assert!(
+                read >= last_read,
+                "Progress should be monotonically increasing"
+            );
             assert!(read <= total, "Progress should not exceed total");
             last_read = read;
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(last_read, data.len() as u64);
     }
@@ -319,14 +327,17 @@ mod tests {
         let data = vec![42u8; 5_000_000];
         let mut progress_count = 0;
 
-        let hash = hash_reader_with_progress(
-            Cursor::new(&data),
-            data.len() as u64,
-            |_, _| progress_count += 1,
-        ).unwrap();
+        let hash = hash_reader_with_progress(Cursor::new(&data), data.len() as u64, |_, _| {
+            progress_count += 1
+        })
+        .unwrap();
 
         // Should have called progress multiple times
-        assert!(progress_count >= 5, "Expected at least 5 progress calls for 5MB, got {}", progress_count);
+        assert!(
+            progress_count >= 5,
+            "Expected at least 5 progress calls for 5MB, got {}",
+            progress_count
+        );
 
         // Hash should be correct
         let expected = crate::hash(&data);

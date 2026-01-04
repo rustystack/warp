@@ -400,3 +400,172 @@ fn test_password_key_derivation() {
     let key4 = derive_key(different_password, &salt).unwrap();
     assert_ne!(key1.as_bytes(), key4.as_bytes());
 }
+
+// ============================================================================
+// ERROR PATH TESTS
+// ============================================================================
+// These tests verify that error conditions are properly detected and reported.
+// Litmus test: "If you comment out a return Err, does a test fail?"
+
+/// Test that decryption with tampered ciphertext fails
+#[test]
+fn test_decryption_tampered_ciphertext_error() {
+    use warp_crypto::encrypt::{encrypt, decrypt, Key};
+
+    let key = Key::from_bytes([0x42u8; 32]);
+    let plaintext = b"Secret message";
+
+    let mut ciphertext = encrypt(&key, plaintext).unwrap();
+
+    // Tamper with the ciphertext (flip a bit in the encrypted payload)
+    if ciphertext.len() > 15 {
+        ciphertext[15] ^= 0xFF;
+    }
+
+    let result = decrypt(&key, &ciphertext);
+    assert!(
+        result.is_err(),
+        "Decryption of tampered ciphertext should fail"
+    );
+}
+
+/// Test that decryption with truncated ciphertext fails
+#[test]
+fn test_decryption_truncated_ciphertext_error() {
+    use warp_crypto::encrypt::{decrypt, Key};
+
+    let key = Key::from_bytes([0x42u8; 32]);
+
+    // Too short - less than nonce (12) + tag (16) = 28 bytes minimum
+    let short_ciphertext = vec![0u8; 20];
+
+    let result = decrypt(&key, &short_ciphertext);
+    assert!(
+        result.is_err(),
+        "Decryption of too-short ciphertext should fail"
+    );
+}
+
+/// Test that erasure decoding with too few shards fails
+#[test]
+fn test_erasure_decode_too_few_shards_error() {
+    use warp_ec::{ErasureConfig, ErasureEncoder, ErasureDecoder};
+
+    let config = ErasureConfig::new(4, 2).unwrap();
+    let encoder = ErasureEncoder::new(config.clone());
+    let decoder = ErasureDecoder::new(config);
+
+    let data: Vec<u8> = (0..256).map(|i| i as u8).collect();
+    let shards = encoder.encode(&data).unwrap();
+
+    // Remove 3 shards (more than parity_shards=2 can recover)
+    let mut shard_opts: Vec<Option<Vec<u8>>> = shards.into_iter().map(Some).collect();
+    shard_opts[0] = None;
+    shard_opts[1] = None;
+    shard_opts[2] = None;
+
+    let result = decoder.decode(&shard_opts);
+    assert!(
+        result.is_err(),
+        "Decoding with too many missing shards should fail"
+    );
+}
+
+/// Test that erasure decoding with wrong shard count fails
+#[test]
+fn test_erasure_decode_wrong_shard_count_error() {
+    use warp_ec::{ErasureConfig, ErasureDecoder};
+
+    let config = ErasureConfig::new(4, 2).unwrap();
+    let decoder = ErasureDecoder::new(config);
+
+    // Provide wrong number of shards (5 instead of 6)
+    let shard_opts: Vec<Option<Vec<u8>>> = vec![
+        Some(vec![0u8; 64]),
+        Some(vec![0u8; 64]),
+        Some(vec![0u8; 64]),
+        Some(vec![0u8; 64]),
+        Some(vec![0u8; 64]),
+    ];
+
+    let result = decoder.decode(&shard_opts);
+    assert!(
+        result.is_err(),
+        "Decoding with wrong shard count should fail"
+    );
+}
+
+/// Test that erasure encoding with empty data fails
+#[test]
+fn test_erasure_encode_empty_data_error() {
+    use warp_ec::{ErasureConfig, ErasureEncoder};
+
+    let config = ErasureConfig::new(4, 2).unwrap();
+    let encoder = ErasureEncoder::new(config);
+
+    let result = encoder.encode(&[]);
+    assert!(result.is_err(), "Encoding empty data should fail");
+}
+
+/// Test that stream cipher decryption with wrong counter fails
+#[test]
+fn test_stream_cipher_wrong_counter_error() {
+    use warp_crypto::stream::StreamCipher;
+
+    let key = [0x42u8; 32];
+    let nonce = [0x24u8; 12];
+
+    let mut encryptor = StreamCipher::new(&key, &nonce);
+    let mut decryptor = StreamCipher::new(&key, &nonce);
+
+    // Encrypt two chunks
+    let _ct1 = encryptor.encrypt_chunk(b"first").unwrap();
+    let ct2 = encryptor.encrypt_chunk(b"second").unwrap();
+
+    // Try to decrypt second chunk with counter still at 0 (skipping first)
+    let result = decryptor.decrypt_chunk(&ct2);
+    assert!(
+        result.is_err(),
+        "Decrypting with wrong counter should fail"
+    );
+}
+
+/// Test that stream cipher skip_to_counter backward fails
+#[test]
+fn test_stream_cipher_backward_skip_error() {
+    use warp_crypto::stream::StreamCipher;
+
+    let key = [0x42u8; 32];
+    let nonce = [0x24u8; 12];
+    let mut cipher = StreamCipher::new(&key, &nonce);
+
+    // Move counter forward
+    cipher.skip_to_counter(100).unwrap();
+
+    // Try to skip backward (would cause nonce reuse)
+    let result = cipher.skip_to_counter(50);
+    assert!(
+        result.is_err(),
+        "Skipping counter backward should fail (nonce reuse prevention)"
+    );
+}
+
+/// Test that signature verification with wrong message fails
+#[test]
+fn test_signature_wrong_message_error() {
+    use warp_crypto::sign::{generate_keypair, sign, verify};
+
+    let signing_key = generate_keypair();
+    let verifying_key = signing_key.verifying_key();
+
+    let message = b"Original message";
+    let signature = sign(&signing_key, message);
+
+    let tampered_message = b"Tampered message";
+    let result = verify(&verifying_key, tampered_message, &signature);
+
+    assert!(
+        result.is_err(),
+        "Signature verification with wrong message should fail"
+    );
+}
