@@ -8,15 +8,17 @@
 //! - Concurrent access via DashMap
 
 use bytes::Bytes;
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
+use portal_net::types::{PathId, PeerEndpoint};
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tokio::time::{Duration, timeout};
-use warp_net::WarpConnection;
+use warp_net::{LocalInterface, MultiPathEndpoint, WarpConnection};
 use warp_sched::EdgeIdx;
 
 /// Pool-specific errors
@@ -40,6 +42,10 @@ pub enum PoolError {
     Transport(String),
     #[error("no transport available for connection {0}")]
     NoTransport(u64),
+    #[error("no path available: {0}")]
+    NoPath(String),
+    #[error("interface not found: {0}")]
+    InterfaceNotFound(String),
 }
 
 pub type Result<T> = std::result::Result<T, PoolError>;
@@ -656,6 +662,738 @@ fn current_time_ms() -> u64 {
         .as_millis() as u64
 }
 
+// ============================================================================
+// Multi-Path Connection Pool
+// ============================================================================
+
+/// Configuration for multi-path connection pool
+///
+/// Extends the base pool configuration with multi-path specific settings
+/// for path diversity and interface management.
+#[derive(Debug, Clone)]
+pub struct MultiPathPoolConfig {
+    /// Base pool configuration
+    pub base: PoolConfig,
+
+    /// Maximum connections per unique path (local_ip × remote_ip pair)
+    pub max_connections_per_path: usize,
+
+    /// Whether to prefer path diversity when acquiring connections
+    /// When true, acquire_diverse() will avoid paths that are currently in-flight
+    pub prefer_diversity: bool,
+}
+
+impl Default for MultiPathPoolConfig {
+    fn default() -> Self {
+        Self {
+            base: PoolConfig::default(),
+            max_connections_per_path: 2,
+            prefer_diversity: true,
+        }
+    }
+}
+
+impl MultiPathPoolConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.base.validate()?;
+        if self.max_connections_per_path == 0 {
+            return Err(PoolError::InvalidConfig(
+                "max_connections_per_path must be > 0".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Path-aware connection with explicit source/destination tracking
+///
+/// Extends Connection with path-specific information for multi-path aggregation.
+/// Tracks local and remote IP addresses to identify the physical network path.
+#[derive(Debug, Clone)]
+pub struct PathAwareConnection {
+    /// Connection state (Idle, InUse, etc.)
+    pub state: ConnectionState,
+    /// Edge this connection belongs to
+    pub edge_idx: EdgeIdx,
+    /// Unique connection identifier
+    pub id: u64,
+    /// Path identifier (hash of local_ip + remote_ip)
+    pub path_id: PathId,
+    /// Local interface IP address
+    pub local_ip: IpAddr,
+    /// Remote endpoint IP address
+    pub remote_ip: IpAddr,
+    /// Total bytes sent on this connection
+    pub bytes_sent: u64,
+    /// Total bytes received on this connection
+    pub bytes_received: u64,
+    /// Timestamp of last activity
+    pub last_used_ms: u64,
+}
+
+impl PathAwareConnection {
+    #[inline]
+    fn new(id: u64, edge_idx: EdgeIdx, path_id: PathId, local_ip: IpAddr, remote_ip: IpAddr) -> Self {
+        Self {
+            state: ConnectionState::Idle,
+            edge_idx,
+            id,
+            path_id,
+            local_ip,
+            remote_ip,
+            bytes_sent: 0,
+            bytes_received: 0,
+            last_used_ms: current_time_ms(),
+        }
+    }
+
+    /// Mark connection as in-use
+    #[inline]
+    fn mark_used(&mut self) {
+        self.state = ConnectionState::InUse;
+        self.last_used_ms = current_time_ms();
+    }
+
+    /// Mark connection as idle
+    #[inline]
+    fn mark_idle(&mut self) {
+        self.state = ConnectionState::Idle;
+        self.last_used_ms = current_time_ms();
+    }
+}
+
+/// RAII wrapper for borrowed path-aware connection
+#[derive(Debug)]
+pub struct PooledPathConnection {
+    pool: Arc<MultiPathConnectionPoolInner>,
+    conn_id: u64,
+    edge_idx: EdgeIdx,
+    path_id: PathId,
+}
+
+impl PooledPathConnection {
+    /// Get the edge index for this connection
+    #[inline]
+    pub fn edge_idx(&self) -> EdgeIdx {
+        self.edge_idx
+    }
+
+    /// Get the connection ID
+    #[inline]
+    pub fn conn_id(&self) -> u64 {
+        self.conn_id
+    }
+
+    /// Get the path ID for this connection
+    #[inline]
+    pub fn path_id(&self) -> PathId {
+        self.path_id
+    }
+
+    /// Check if this connection has a real transport attached
+    #[inline]
+    pub fn has_transport(&self) -> bool {
+        self.pool.transports.contains_key(&self.conn_id)
+    }
+
+    /// Get the underlying WarpConnection transport if available
+    pub fn transport(&self) -> Option<Arc<WarpConnection>> {
+        self.pool.transports.get(&self.conn_id).map(|t| t.clone())
+    }
+
+    /// Send chunk data using real QUIC transport (zero-copy)
+    pub async fn send_chunk(&self, chunk_id: u32, data: Bytes) -> Result<()> {
+        // Update stats
+        if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
+            conn.bytes_sent += data.len() as u64;
+        }
+
+        // Fast path: real transport
+        if let Some(transport) = self.pool.transports.get(&self.conn_id) {
+            return transport
+                .send_chunk(chunk_id, data)
+                .await
+                .map_err(|e| PoolError::Transport(format!("Failed to send chunk: {}", e)));
+        }
+
+        // Mock fallback for tests
+        if let Some(conn) = self.pool.connections.get(&self.conn_id) {
+            if conn.state != ConnectionState::InUse {
+                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+            }
+            Ok(())
+        } else {
+            Err(PoolError::ConnectionNotFound(self.conn_id))
+        }
+    }
+
+    /// Receive a chunk from the peer
+    pub async fn recv_chunk(&self) -> Result<(u32, Bytes)> {
+        if let Some(transport) = self.pool.transports.get(&self.conn_id) {
+            return transport
+                .recv_chunk()
+                .await
+                .map_err(|e| PoolError::Transport(format!("Failed to recv chunk: {}", e)));
+        }
+
+        // Mock fallback
+        if let Some(conn) = self.pool.connections.get(&self.conn_id) {
+            if conn.state != ConnectionState::InUse {
+                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+            }
+            Ok((0, Bytes::from(vec![0u8; 1024])))
+        } else {
+            Err(PoolError::ConnectionNotFound(self.conn_id))
+        }
+    }
+}
+
+impl Drop for PooledPathConnection {
+    fn drop(&mut self) {
+        self.pool.release(self.conn_id, self.path_id);
+    }
+}
+
+/// Statistics for multi-path connection pool
+#[derive(Debug, Clone, Default)]
+pub struct MultiPathPoolStats {
+    pub total_connections: usize,
+    pub idle_connections: usize,
+    pub in_use_connections: usize,
+    pub connections_per_edge: HashMap<EdgeIdx, usize>,
+    pub connections_per_path: HashMap<PathId, usize>,
+    pub total_bytes_sent: u64,
+    pub unique_paths_in_flight: usize,
+    pub active_local_interfaces: usize,
+}
+
+/// Detailed metrics for multi-path network aggregation observability
+///
+/// Provides comprehensive metrics for monitoring the health and performance
+/// of multi-path connections across multiple network interfaces.
+#[derive(Debug, Clone)]
+pub struct MultiPathMetrics {
+    /// Total number of connections across all paths
+    pub total_connections: usize,
+    /// Connection count per unique path (local_ip × remote_ip)
+    pub connections_per_path: HashMap<PathId, usize>,
+    /// Total bytes sent per local interface
+    pub bytes_per_interface: HashMap<IpAddr, u64>,
+    /// Average latency (RTT) per path in microseconds
+    pub latency_per_path: HashMap<PathId, u64>,
+    /// Path diversity score (0.0 = all same path, 1.0 = perfectly distributed)
+    pub diversity_score: f32,
+    /// Number of active local interfaces
+    pub active_local_interfaces: usize,
+    /// Number of active remote endpoints
+    pub active_remote_endpoints: usize,
+    /// Timestamp when metrics were collected (ms since epoch)
+    pub timestamp_ms: u64,
+    /// Paths currently handling active transfers
+    pub in_flight_paths: Vec<PathId>,
+    /// Health score per path (0.0 = unhealthy, 1.0 = healthy)
+    pub health_per_path: HashMap<PathId, f32>,
+}
+
+impl Default for MultiPathMetrics {
+    fn default() -> Self {
+        Self {
+            total_connections: 0,
+            connections_per_path: HashMap::new(),
+            bytes_per_interface: HashMap::new(),
+            latency_per_path: HashMap::new(),
+            diversity_score: 0.0,
+            active_local_interfaces: 0,
+            active_remote_endpoints: 0,
+            timestamp_ms: current_time_ms(),
+            in_flight_paths: Vec::new(),
+            health_per_path: HashMap::new(),
+        }
+    }
+}
+
+impl MultiPathMetrics {
+    /// Create new metrics from pool stats with additional data
+    pub fn from_pool_stats(stats: &MultiPathPoolStats) -> Self {
+        Self {
+            total_connections: stats.total_connections,
+            connections_per_path: stats.connections_per_path.clone(),
+            bytes_per_interface: HashMap::new(), // Requires connection tracking
+            latency_per_path: HashMap::new(),    // Requires latency tracking
+            diversity_score: Self::compute_diversity(&stats.connections_per_path),
+            active_local_interfaces: stats.active_local_interfaces,
+            active_remote_endpoints: stats.connections_per_path.len(),
+            timestamp_ms: current_time_ms(),
+            in_flight_paths: Vec::new(),
+            health_per_path: HashMap::new(),
+        }
+    }
+
+    /// Compute path diversity score
+    ///
+    /// Returns a value between 0.0 and 1.0:
+    /// - 0.0 = all connections use the same path
+    /// - 1.0 = connections are evenly distributed across all paths
+    fn compute_diversity(connections_per_path: &HashMap<PathId, usize>) -> f32 {
+        if connections_per_path.is_empty() {
+            return 0.0;
+        }
+
+        let total: usize = connections_per_path.values().sum();
+        if total == 0 {
+            return 0.0;
+        }
+
+        let num_paths = connections_per_path.len();
+        if num_paths == 1 {
+            return 0.0; // Only one path, no diversity
+        }
+
+        // Calculate entropy-based diversity
+        // Maximum entropy would be even distribution across all paths
+        let ideal_per_path = total as f32 / num_paths as f32;
+        let mut variance = 0.0_f32;
+
+        for &count in connections_per_path.values() {
+            let diff = count as f32 - ideal_per_path;
+            variance += diff * diff;
+        }
+
+        let avg_variance = variance / num_paths as f32;
+        let max_variance = ideal_per_path * ideal_per_path * num_paths as f32;
+
+        if max_variance == 0.0 {
+            return 1.0;
+        }
+
+        // Diversity = 1 - normalized variance
+        (1.0 - avg_variance / max_variance).clamp(0.0, 1.0)
+    }
+
+    /// Check if any path is overloaded (handling >50% of all connections)
+    pub fn has_overloaded_path(&self) -> bool {
+        if self.total_connections == 0 {
+            return false;
+        }
+
+        let threshold = self.total_connections as f32 * 0.5;
+        self.connections_per_path
+            .values()
+            .any(|&count| count as f32 > threshold)
+    }
+
+    /// Get underutilized paths (handling <10% of expected fair share)
+    pub fn underutilized_paths(&self) -> Vec<PathId> {
+        if self.connections_per_path.is_empty() || self.total_connections == 0 {
+            return Vec::new();
+        }
+
+        let fair_share = self.total_connections as f32 / self.connections_per_path.len() as f32;
+        let threshold = fair_share * 0.1;
+
+        self.connections_per_path
+            .iter()
+            .filter(|(_, count)| (**count as f32) < threshold)
+            .map(|(path_id, _)| *path_id)
+            .collect()
+    }
+
+    /// Summary string for logging
+    pub fn summary(&self) -> String {
+        format!(
+            "MultiPath[conns={}, paths={}, diversity={:.2}, interfaces={}]",
+            self.total_connections,
+            self.connections_per_path.len(),
+            self.diversity_score,
+            self.active_local_interfaces
+        )
+    }
+}
+
+/// Inner implementation for multi-path connection pool
+struct MultiPathConnectionPoolInner {
+    config: MultiPathPoolConfig,
+    connections: DashMap<u64, PathAwareConnection>,
+    transports: DashMap<u64, Arc<WarpConnection>>,
+
+    /// Connections grouped by edge
+    edge_connections: DashMap<EdgeIdx, Vec<u64>>,
+
+    /// Connections grouped by path
+    path_connections: DashMap<PathId, Vec<u64>>,
+
+    /// Paths currently in-flight (for diversity selection)
+    in_flight_paths: DashSet<PathId>,
+
+    /// Idle connections per path for O(1) lookup
+    idle_connections: DashMap<PathId, Vec<u64>>,
+
+    next_conn_id: AtomicU64,
+    total_semaphore: Arc<Semaphore>,
+    path_semaphores: DashMap<PathId, Arc<Semaphore>>,
+}
+
+impl std::fmt::Debug for MultiPathConnectionPoolInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiPathConnectionPoolInner")
+            .field("config", &self.config)
+            .field("connections_count", &self.connections.len())
+            .field("in_flight_paths_count", &self.in_flight_paths.len())
+            .finish()
+    }
+}
+
+impl MultiPathConnectionPoolInner {
+    fn new(config: MultiPathPoolConfig) -> Self {
+        Self {
+            total_semaphore: Arc::new(Semaphore::new(config.base.max_total_connections)),
+            config,
+            connections: DashMap::new(),
+            transports: DashMap::new(),
+            edge_connections: DashMap::new(),
+            path_connections: DashMap::new(),
+            in_flight_paths: DashSet::new(),
+            idle_connections: DashMap::new(),
+            next_conn_id: AtomicU64::new(1),
+            path_semaphores: DashMap::new(),
+        }
+    }
+
+    #[inline]
+    fn get_path_semaphore(&self, path_id: PathId) -> Arc<Semaphore> {
+        self.path_semaphores
+            .entry(path_id)
+            .or_insert_with(|| Arc::new(Semaphore::new(self.config.max_connections_per_path)))
+            .clone()
+    }
+
+    /// Pop an idle connection from a specific path
+    #[inline]
+    fn pop_idle_from_path(&self, path_id: PathId) -> Option<u64> {
+        self.idle_connections
+            .get_mut(&path_id)
+            .and_then(|mut ids| ids.pop())
+    }
+
+    /// Add connection to idle index
+    #[inline]
+    fn add_to_idle_index(&self, path_id: PathId, conn_id: u64) {
+        self.idle_connections
+            .entry(path_id)
+            .or_insert_with(Vec::new)
+            .push(conn_id);
+    }
+
+    /// Release connection and remove from in-flight paths
+    fn release(&self, conn_id: u64, path_id: PathId) {
+        if let Some(mut conn) = self.connections.get_mut(&conn_id) {
+            if conn.state == ConnectionState::InUse {
+                conn.mark_idle();
+                self.add_to_idle_index(path_id, conn_id);
+                self.in_flight_paths.remove(&path_id);
+            }
+        }
+    }
+
+    fn stats(&self) -> MultiPathPoolStats {
+        let mut stats = MultiPathPoolStats::default();
+        let mut per_edge: HashMap<EdgeIdx, usize> = HashMap::new();
+        let mut per_path: HashMap<PathId, usize> = HashMap::new();
+        let mut local_ips = std::collections::HashSet::new();
+
+        for conn_ref in self.connections.iter() {
+            let conn = conn_ref.value();
+            stats.total_connections += 1;
+            stats.total_bytes_sent += conn.bytes_sent;
+            local_ips.insert(conn.local_ip);
+
+            match conn.state {
+                ConnectionState::Idle => stats.idle_connections += 1,
+                ConnectionState::InUse => stats.in_use_connections += 1,
+                _ => {}
+            }
+
+            *per_edge.entry(conn.edge_idx).or_insert(0) += 1;
+            *per_path.entry(conn.path_id).or_insert(0) += 1;
+        }
+
+        stats.connections_per_edge = per_edge;
+        stats.connections_per_path = per_path;
+        stats.unique_paths_in_flight = self.in_flight_paths.len();
+        stats.active_local_interfaces = local_ips.len();
+        stats
+    }
+}
+
+/// Multi-path connection pool with path diversity support
+///
+/// This pool extends the basic connection pool with:
+/// - Path-aware connections tracking (local_ip × remote_ip)
+/// - In-flight path tracking for diversity selection
+/// - Integration with MultiPathEndpoint for explicit interface binding
+///
+/// # Path Diversity Strategy
+///
+/// When `prefer_diversity` is enabled, `acquire_diverse()` will:
+/// 1. Enumerate all possible paths for the edge (local_ips × peer_endpoints)
+/// 2. Score paths by priority and whether they're currently in-flight
+/// 3. Select the best path (lowest score = preferred, not in-flight)
+///
+/// This ensures concurrent requests to the same edge spread across different
+/// physical network paths, maximizing aggregate throughput.
+#[derive(Clone)]
+pub struct MultiPathConnectionPool {
+    inner: Arc<MultiPathConnectionPoolInner>,
+    multi_endpoint: Arc<tokio::sync::RwLock<MultiPathEndpoint>>,
+}
+
+impl MultiPathConnectionPool {
+    /// Create a new multi-path connection pool
+    ///
+    /// Requires a MultiPathEndpoint for interface binding and optional config.
+    pub fn new(
+        multi_endpoint: MultiPathEndpoint,
+        config: MultiPathPoolConfig,
+    ) -> Result<Self> {
+        config.validate()?;
+        Ok(Self {
+            inner: Arc::new(MultiPathConnectionPoolInner::new(config)),
+            multi_endpoint: Arc::new(tokio::sync::RwLock::new(multi_endpoint)),
+        })
+    }
+
+    /// Acquire a connection with path diversity
+    ///
+    /// This is the key method for multi-path aggregation. It:
+    /// 1. Enumerates all possible paths to the edge
+    /// 2. Scores paths by priority and in-flight status
+    /// 3. Selects the best available path
+    /// 4. Creates or reuses a connection on that path
+    ///
+    /// # Arguments
+    /// * `edge_idx` - The edge to connect to
+    /// * `peer_endpoints` - Available endpoints for this peer
+    /// * `server_name` - TLS server name for connection
+    pub async fn acquire_diverse(
+        &self,
+        edge_idx: EdgeIdx,
+        peer_endpoints: &[PeerEndpoint],
+        server_name: &str,
+    ) -> Result<PooledPathConnection> {
+        let multi_ep = self.multi_endpoint.read().await;
+        let local_ips = multi_ep.local_ips();
+
+        if local_ips.is_empty() {
+            return Err(PoolError::NoPath("No local interfaces available".to_string()));
+        }
+
+        let active_endpoints: Vec<_> = peer_endpoints
+            .iter()
+            .filter(|ep| ep.enabled)
+            .collect();
+
+        if active_endpoints.is_empty() {
+            return Err(PoolError::NoPath("No active peer endpoints".to_string()));
+        }
+
+        // Enumerate and score all possible paths
+        let mut scored_paths: Vec<(IpAddr, &PeerEndpoint, PathId, f32)> = Vec::new();
+
+        for local_ip in &local_ips {
+            for ep in &active_endpoints {
+                let path_id = PathId::from_ips(*local_ip, ep.addr.ip());
+
+                // Score: priority (lower = better) + in-flight penalty
+                let priority_score = ep.priority.0 as f32 / 255.0;
+                let in_flight_penalty = if self.inner.in_flight_paths.contains(&path_id) {
+                    1.0
+                } else {
+                    0.0
+                };
+                let score = priority_score + in_flight_penalty;
+
+                scored_paths.push((*local_ip, *ep, path_id, score));
+            }
+        }
+
+        // Sort by score (lowest first)
+        scored_paths.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Try paths in order until one succeeds
+        for (local_ip, peer_ep, path_id, _score) in scored_paths {
+            // Try to get an idle connection first
+            if let Some(conn_id) = self.inner.pop_idle_from_path(path_id) {
+                if let Some(mut conn) = self.inner.connections.get_mut(&conn_id) {
+                    conn.mark_used();
+                    self.inner.in_flight_paths.insert(path_id);
+                    return Ok(PooledPathConnection {
+                        pool: self.inner.clone(),
+                        conn_id,
+                        edge_idx,
+                        path_id,
+                    });
+                }
+            }
+
+            // Try to create a new connection on this path
+            match self.try_create_connection(
+                edge_idx,
+                path_id,
+                local_ip,
+                peer_ep,
+                server_name,
+                &multi_ep,
+            ).await {
+                Ok(pooled_conn) => return Ok(pooled_conn),
+                Err(PoolError::MaxConnectionsPerEdge(_)) => continue, // Try next path
+                Err(PoolError::MaxTotalConnections(_)) => continue,
+                Err(e) => {
+                    tracing::debug!("Failed to create connection via {:?}: {}", path_id, e);
+                    continue;
+                }
+            }
+        }
+
+        Err(PoolError::NoPath("All paths exhausted or at capacity".to_string()))
+    }
+
+    /// Try to create a new connection on a specific path
+    async fn try_create_connection(
+        &self,
+        edge_idx: EdgeIdx,
+        path_id: PathId,
+        local_ip: IpAddr,
+        peer_ep: &PeerEndpoint,
+        server_name: &str,
+        multi_ep: &MultiPathEndpoint,
+    ) -> Result<PooledPathConnection> {
+        // Acquire semaphores
+        let _total_permit = self.inner.total_semaphore
+            .try_acquire()
+            .map_err(|_| PoolError::MaxTotalConnections(self.inner.config.base.max_total_connections))?;
+
+        let path_sem = self.inner.get_path_semaphore(path_id);
+        let _path_permit = path_sem
+            .try_acquire()
+            .map_err(|_| PoolError::MaxConnectionsPerEdge(self.inner.config.max_connections_per_path))?;
+
+        // Connect via specific interface
+        let transport = multi_ep
+            .connect_via(local_ip, peer_ep.addr, server_name)
+            .await
+            .map_err(|e| PoolError::Transport(format!("Failed to connect: {}", e)))?;
+
+        let transport = Arc::new(transport);
+        let conn_id = self.inner.next_conn_id.fetch_add(1, Ordering::Relaxed);
+        let mut conn = PathAwareConnection::new(conn_id, edge_idx, path_id, local_ip, peer_ep.addr.ip());
+        conn.mark_used();
+
+        // Store connection and transport
+        self.inner.connections.insert(conn_id, conn);
+        self.inner.transports.insert(conn_id, transport);
+        self.inner.edge_connections
+            .entry(edge_idx)
+            .or_insert_with(Vec::new)
+            .push(conn_id);
+        self.inner.path_connections
+            .entry(path_id)
+            .or_insert_with(Vec::new)
+            .push(conn_id);
+        self.inner.in_flight_paths.insert(path_id);
+
+        // Keep permits (connection is now managed)
+        _total_permit.forget();
+        _path_permit.forget();
+
+        Ok(PooledPathConnection {
+            pool: self.inner.clone(),
+            conn_id,
+            edge_idx,
+            path_id,
+        })
+    }
+
+    /// Get pool statistics
+    pub fn stats(&self) -> MultiPathPoolStats {
+        self.inner.stats()
+    }
+
+    /// Get pool configuration
+    pub fn config(&self) -> &MultiPathPoolConfig {
+        &self.inner.config
+    }
+
+    /// Close all connections to an edge
+    pub fn close_edge(&self, edge_idx: EdgeIdx) {
+        if let Some((_, conn_ids)) = self.inner.edge_connections.remove(&edge_idx) {
+            for conn_id in conn_ids {
+                if let Some((_, conn)) = self.inner.connections.remove(&conn_id) {
+                    self.inner.transports.remove(&conn_id);
+                    self.inner.path_connections.get_mut(&conn.path_id)
+                        .map(|mut v| v.retain(|&id| id != conn_id));
+                    self.inner.in_flight_paths.remove(&conn.path_id);
+                    self.inner.idle_connections.get_mut(&conn.path_id)
+                        .map(|mut v| v.retain(|&id| id != conn_id));
+                }
+            }
+        }
+    }
+
+    /// Get path diversity score (0.0 = all same path, 1.0 = all different paths)
+    pub fn path_diversity(&self, edge_idx: EdgeIdx) -> f32 {
+        if let Some(conn_ids) = self.inner.edge_connections.get(&edge_idx) {
+            let mut unique_paths = std::collections::HashSet::new();
+            for conn_id in conn_ids.iter() {
+                if let Some(conn) = self.inner.connections.get(conn_id) {
+                    unique_paths.insert(conn.path_id);
+                }
+            }
+            let total = conn_ids.len();
+            if total == 0 {
+                return 0.0;
+            }
+            unique_paths.len() as f32 / total as f32
+        } else {
+            0.0
+        }
+    }
+
+    /// Get detailed metrics for observability
+    ///
+    /// Returns comprehensive metrics including path diversity, interface
+    /// utilization, and connection distribution.
+    pub fn metrics(&self) -> MultiPathMetrics {
+        let stats = self.inner.stats();
+
+        // Collect bytes per interface
+        let mut bytes_per_interface: HashMap<IpAddr, u64> = HashMap::new();
+        for conn_ref in self.inner.connections.iter() {
+            let conn = conn_ref.value();
+            *bytes_per_interface.entry(conn.local_ip).or_insert(0) += conn.bytes_sent;
+        }
+
+        // Collect in-flight paths
+        let in_flight_paths: Vec<PathId> = self.inner.in_flight_paths.iter().map(|p| *p).collect();
+
+        MultiPathMetrics {
+            total_connections: stats.total_connections,
+            connections_per_path: stats.connections_per_path.clone(),
+            bytes_per_interface,
+            latency_per_path: HashMap::new(), // Would need RTT tracking
+            diversity_score: MultiPathMetrics::compute_diversity(&stats.connections_per_path),
+            active_local_interfaces: stats.active_local_interfaces,
+            active_remote_endpoints: stats.connections_per_path.len(),
+            timestamp_ms: current_time_ms(),
+            in_flight_paths,
+            health_per_path: HashMap::new(), // Would need health tracking
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1087,5 +1825,272 @@ mod tests {
         let time2 = current_time_ms();
         assert!(time2 > time1);
         assert!(time2 - time1 >= 10);
+    }
+
+    // =========================================================================
+    // Multi-Path Pool Tests
+    // =========================================================================
+
+    #[test]
+    fn test_multipath_pool_config_default() {
+        let config = MultiPathPoolConfig::default();
+        assert_eq!(config.max_connections_per_path, 2);
+        assert!(config.prefer_diversity);
+        assert_eq!(config.base.max_connections_per_edge, 4);
+    }
+
+    #[test]
+    fn test_multipath_pool_config_validation() {
+        let config = MultiPathPoolConfig::default();
+        assert!(config.validate().is_ok());
+
+        let invalid = MultiPathPoolConfig {
+            max_connections_per_path: 0,
+            ..Default::default()
+        };
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn test_path_aware_connection_creation() {
+        let edge_idx = EdgeIdx::new(1);
+        let path_id = PathId::from_ips(
+            "10.10.10.1".parse().unwrap(),
+            "10.10.10.2".parse().unwrap(),
+        );
+        let conn = PathAwareConnection::new(
+            42,
+            edge_idx,
+            path_id,
+            "10.10.10.1".parse().unwrap(),
+            "10.10.10.2".parse().unwrap(),
+        );
+
+        assert_eq!(conn.id, 42);
+        assert_eq!(conn.edge_idx, edge_idx);
+        assert_eq!(conn.path_id, path_id);
+        assert_eq!(conn.state, ConnectionState::Idle);
+        assert_eq!(conn.bytes_sent, 0);
+        assert_eq!(conn.bytes_received, 0);
+        assert_eq!(conn.local_ip, "10.10.10.1".parse::<IpAddr>().unwrap());
+        assert_eq!(conn.remote_ip, "10.10.10.2".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn test_path_aware_connection_state_transitions() {
+        let edge_idx = EdgeIdx::new(1);
+        let path_id = PathId(12345);
+        let mut conn = PathAwareConnection::new(
+            1,
+            edge_idx,
+            path_id,
+            "127.0.0.1".parse().unwrap(),
+            "127.0.0.2".parse().unwrap(),
+        );
+
+        assert_eq!(conn.state, ConnectionState::Idle);
+
+        conn.mark_used();
+        assert_eq!(conn.state, ConnectionState::InUse);
+
+        conn.mark_idle();
+        assert_eq!(conn.state, ConnectionState::Idle);
+    }
+
+    #[test]
+    fn test_path_aware_connection_ipv6() {
+        let edge_idx = EdgeIdx::new(1);
+        let local_ip: IpAddr = "::1".parse().unwrap();
+        let remote_ip: IpAddr = "2001:db8::1".parse().unwrap();
+        let path_id = PathId::from_ips(local_ip, remote_ip);
+
+        let conn = PathAwareConnection::new(1, edge_idx, path_id, local_ip, remote_ip);
+
+        assert_eq!(conn.local_ip, local_ip);
+        assert_eq!(conn.remote_ip, remote_ip);
+    }
+
+    #[test]
+    fn test_multipath_pool_stats_default() {
+        let stats = MultiPathPoolStats::default();
+        assert_eq!(stats.total_connections, 0);
+        assert_eq!(stats.idle_connections, 0);
+        assert_eq!(stats.in_use_connections, 0);
+        assert_eq!(stats.total_bytes_sent, 0);
+        assert_eq!(stats.unique_paths_in_flight, 0);
+        assert_eq!(stats.active_local_interfaces, 0);
+        assert!(stats.connections_per_edge.is_empty());
+        assert!(stats.connections_per_path.is_empty());
+    }
+
+    #[test]
+    fn test_path_id_deterministic() {
+        // Same IPs should produce same PathId
+        let local: IpAddr = "10.10.10.1".parse().unwrap();
+        let remote: IpAddr = "10.10.10.2".parse().unwrap();
+
+        let path1 = PathId::from_ips(local, remote);
+        let path2 = PathId::from_ips(local, remote);
+
+        assert_eq!(path1, path2);
+
+        // Different IPs should produce different PathId
+        let remote2: IpAddr = "10.10.11.2".parse().unwrap();
+        let path3 = PathId::from_ips(local, remote2);
+
+        assert_ne!(path1, path3);
+    }
+
+    #[test]
+    fn test_path_id_symmetric_different() {
+        // (A, B) should be different from (B, A)
+        let ip_a: IpAddr = "10.10.10.1".parse().unwrap();
+        let ip_b: IpAddr = "10.10.10.2".parse().unwrap();
+
+        let path_ab = PathId::from_ips(ip_a, ip_b);
+        let path_ba = PathId::from_ips(ip_b, ip_a);
+
+        assert_ne!(path_ab, path_ba);
+    }
+
+    // =========================================================================
+    // MultiPathMetrics Tests
+    // =========================================================================
+
+    #[test]
+    fn test_multipath_metrics_default() {
+        let metrics = MultiPathMetrics::default();
+        assert_eq!(metrics.total_connections, 0);
+        assert_eq!(metrics.diversity_score, 0.0);
+        assert_eq!(metrics.active_local_interfaces, 0);
+        assert!(metrics.connections_per_path.is_empty());
+        assert!(metrics.bytes_per_interface.is_empty());
+        assert!(metrics.in_flight_paths.is_empty());
+    }
+
+    #[test]
+    fn test_multipath_metrics_from_pool_stats() {
+        let mut stats = MultiPathPoolStats::default();
+        stats.total_connections = 10;
+        stats.active_local_interfaces = 2;
+        stats.connections_per_path.insert(PathId(1), 5);
+        stats.connections_per_path.insert(PathId(2), 5);
+
+        let metrics = MultiPathMetrics::from_pool_stats(&stats);
+
+        assert_eq!(metrics.total_connections, 10);
+        assert_eq!(metrics.active_local_interfaces, 2);
+        assert_eq!(metrics.active_remote_endpoints, 2);
+        // Even distribution should have high diversity
+        assert!(metrics.diversity_score > 0.9);
+    }
+
+    #[test]
+    fn test_multipath_metrics_diversity_single_path() {
+        let mut connections_per_path = HashMap::new();
+        connections_per_path.insert(PathId(1), 10);
+
+        let diversity = MultiPathMetrics::compute_diversity(&connections_per_path);
+        assert_eq!(diversity, 0.0); // Single path = no diversity
+    }
+
+    #[test]
+    fn test_multipath_metrics_diversity_even_distribution() {
+        let mut connections_per_path = HashMap::new();
+        connections_per_path.insert(PathId(1), 5);
+        connections_per_path.insert(PathId(2), 5);
+
+        let diversity = MultiPathMetrics::compute_diversity(&connections_per_path);
+        assert!(diversity > 0.95); // Perfect distribution
+    }
+
+    #[test]
+    fn test_multipath_metrics_diversity_uneven_distribution() {
+        let mut connections_per_path = HashMap::new();
+        connections_per_path.insert(PathId(1), 9);
+        connections_per_path.insert(PathId(2), 1);
+
+        let diversity = MultiPathMetrics::compute_diversity(&connections_per_path);
+        // Uneven distribution (9:1) should have lower diversity than perfect (5:5)
+        // But not zero because there's still some distribution
+        assert!(diversity < 0.8);
+        assert!(diversity > 0.0);
+
+        // Test extremely uneven distribution
+        let mut extreme = HashMap::new();
+        extreme.insert(PathId(1), 99);
+        extreme.insert(PathId(2), 1);
+        let extreme_diversity = MultiPathMetrics::compute_diversity(&extreme);
+        assert!(extreme_diversity < diversity); // More uneven = lower diversity
+    }
+
+    #[test]
+    fn test_multipath_metrics_has_overloaded_path() {
+        let mut metrics = MultiPathMetrics::default();
+        metrics.total_connections = 10;
+
+        // Not overloaded when evenly distributed
+        metrics.connections_per_path.insert(PathId(1), 5);
+        metrics.connections_per_path.insert(PathId(2), 5);
+        assert!(!metrics.has_overloaded_path());
+
+        // Overloaded when one path has >50%
+        metrics.connections_per_path.clear();
+        metrics.connections_per_path.insert(PathId(1), 8);
+        metrics.connections_per_path.insert(PathId(2), 2);
+        assert!(metrics.has_overloaded_path());
+    }
+
+    #[test]
+    fn test_multipath_metrics_underutilized_paths() {
+        let mut metrics = MultiPathMetrics::default();
+        metrics.total_connections = 100;
+        metrics.connections_per_path.insert(PathId(1), 90);
+        metrics.connections_per_path.insert(PathId(2), 5);
+        metrics.connections_per_path.insert(PathId(3), 5);
+
+        let underutilized = metrics.underutilized_paths();
+        // Fair share would be ~33 per path, 10% threshold = 3.3
+        // Paths with <3.3 connections are underutilized
+        // Both PathId(2) and PathId(3) have 5, which is > 3.3, so not underutilized
+        // Actually, let's recalculate: 100/3 = 33.3, 10% of 33.3 = 3.33
+        // 5 > 3.33, so they're not underutilized
+        assert!(underutilized.is_empty());
+
+        // Now test with truly underutilized path
+        metrics.connections_per_path.clear();
+        metrics.connections_per_path.insert(PathId(1), 97);
+        metrics.connections_per_path.insert(PathId(2), 2);
+        metrics.connections_per_path.insert(PathId(3), 1);
+
+        let underutilized = metrics.underutilized_paths();
+        // Fair share = 33.3, threshold = 3.33
+        // PathId(2)=2 and PathId(3)=1 are both < 3.33
+        assert_eq!(underutilized.len(), 2);
+        assert!(underutilized.contains(&PathId(2)));
+        assert!(underutilized.contains(&PathId(3)));
+    }
+
+    #[test]
+    fn test_multipath_metrics_summary() {
+        let mut metrics = MultiPathMetrics::default();
+        metrics.total_connections = 10;
+        metrics.connections_per_path.insert(PathId(1), 5);
+        metrics.connections_per_path.insert(PathId(2), 5);
+        metrics.diversity_score = 0.95;
+        metrics.active_local_interfaces = 2;
+
+        let summary = metrics.summary();
+        assert!(summary.contains("conns=10"));
+        assert!(summary.contains("paths=2"));
+        assert!(summary.contains("diversity=0.95"));
+        assert!(summary.contains("interfaces=2"));
+    }
+
+    #[test]
+    fn test_multipath_metrics_empty() {
+        let metrics = MultiPathMetrics::default();
+        assert!(!metrics.has_overloaded_path());
+        assert!(metrics.underutilized_paths().is_empty());
     }
 }

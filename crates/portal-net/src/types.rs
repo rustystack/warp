@@ -164,10 +164,160 @@ impl fmt::Display for PeerStatus {
     }
 }
 
+// ============================================================================
+// Multi-Path Network Aggregation Types
+// ============================================================================
+
+/// Priority for an endpoint (lower value = higher priority)
+///
+/// Used to indicate preferred vs backup network paths.
+/// Default priority is 100 (middle range).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct EndpointPriority(pub u8);
+
+impl EndpointPriority {
+    /// Highest priority (preferred path)
+    pub const PRIMARY: Self = EndpointPriority(0);
+    /// Secondary priority (backup path)
+    pub const SECONDARY: Self = EndpointPriority(50);
+    /// Default priority
+    pub const DEFAULT: Self = EndpointPriority(100);
+    /// Lowest priority (last resort)
+    pub const FALLBACK: Self = EndpointPriority(255);
+}
+
+impl Default for EndpointPriority {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl fmt::Display for EndpointPriority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Network path identifier
+///
+/// Deterministic hash from (local_ip, remote_ip) tuple to identify
+/// unique physical network paths for multi-path aggregation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PathId(pub u32);
+
+impl PathId {
+    /// Generate PathId from source and destination IPs
+    ///
+    /// The same (local_ip, remote_ip) pair always produces the same PathId.
+    pub fn from_ips(local: IpAddr, remote: IpAddr) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        local.hash(&mut hasher);
+        remote.hash(&mut hasher);
+        PathId(hasher.finish() as u32)
+    }
+}
+
+impl fmt::Display for PathId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "path:{:08x}", self.0)
+    }
+}
+
+/// A single network endpoint with metadata for multi-path support
+///
+/// Represents one possible way to reach a peer, with priority and
+/// health tracking for intelligent path selection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeerEndpoint {
+    /// Network address (IP:port)
+    pub addr: SocketAddr,
+
+    /// Priority for this endpoint (lower = preferred)
+    pub priority: EndpointPriority,
+
+    /// Whether this endpoint is currently enabled
+    pub enabled: bool,
+
+    /// Optional label for identification (e.g., "eth0", "bond0", "datacenter-a")
+    pub label: Option<String>,
+
+    /// Last successful connection timestamp (milliseconds since epoch)
+    pub last_success_ms: Option<u64>,
+
+    /// Consecutive failure count (for backoff and health tracking)
+    pub failure_count: u8,
+}
+
+impl PeerEndpoint {
+    /// Creates a new endpoint with default settings
+    pub fn new(addr: SocketAddr) -> Self {
+        Self {
+            addr,
+            priority: EndpointPriority::default(),
+            enabled: true,
+            label: None,
+            last_success_ms: None,
+            failure_count: 0,
+        }
+    }
+
+    /// Builder: set priority
+    pub fn with_priority(mut self, priority: EndpointPriority) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    /// Builder: set label
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Builder: set enabled state
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Record a successful connection
+    pub fn record_success(&mut self) {
+        self.last_success_ms = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        );
+        self.failure_count = 0;
+    }
+
+    /// Record a failed connection attempt
+    pub fn record_failure(&mut self) {
+        self.failure_count = self.failure_count.saturating_add(1);
+    }
+
+    /// Check if this endpoint is healthy (enabled with low failure count)
+    pub fn is_healthy(&self) -> bool {
+        self.enabled && self.failure_count < 3
+    }
+}
+
+impl fmt::Display for PeerEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref label) = self.label {
+            write!(f, "{}@{}", label, self.addr)
+        } else {
+            write!(f, "{}", self.addr)
+        }
+    }
+}
+
 /// Peer configuration
 ///
 /// Contains the essential configuration needed to establish a WireGuard
 /// connection with a peer in the mesh network.
+///
+/// Supports multiple endpoints per peer for multi-path network aggregation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PeerConfig {
     /// WireGuard public key (X25519)
@@ -176,8 +326,11 @@ pub struct PeerConfig {
     /// Virtual IP address assigned to this peer
     pub virtual_ip: VirtualIp,
 
-    /// Optional known endpoint (IP:port) for the peer
-    pub endpoint: Option<SocketAddr>,
+    /// Network endpoints for this peer (supports multi-path aggregation)
+    ///
+    /// Multiple endpoints allow connecting via different network paths
+    /// for increased throughput and redundancy.
+    pub endpoints: Vec<PeerEndpoint>,
 
     /// Persistent keepalive interval in seconds (0 to disable)
     pub keepalive: u16,
@@ -192,8 +345,19 @@ impl PeerConfig {
         PeerConfig {
             public_key,
             virtual_ip,
-            endpoint: None,
+            endpoints: Vec::new(),
             keepalive: 25, // Default 25 second keepalive
+            allowed_ips: vec![virtual_ip.into()],
+        }
+    }
+
+    /// Creates a new peer configuration with a single endpoint
+    pub fn with_endpoint(public_key: [u8; 32], virtual_ip: VirtualIp, endpoint: SocketAddr) -> Self {
+        PeerConfig {
+            public_key,
+            virtual_ip,
+            endpoints: vec![PeerEndpoint::new(endpoint)],
+            keepalive: 25,
             allowed_ips: vec![virtual_ip.into()],
         }
     }
@@ -201,6 +365,71 @@ impl PeerConfig {
     /// Returns the public key as a hex string
     pub fn public_key_hex(&self) -> String {
         hex::encode(self.public_key)
+    }
+
+    /// Returns the primary (highest priority) endpoint address
+    ///
+    /// This is a backwards-compatible method for code that expects
+    /// a single endpoint. Returns the enabled endpoint with lowest
+    /// priority value (highest priority).
+    pub fn endpoint(&self) -> Option<SocketAddr> {
+        self.endpoints
+            .iter()
+            .filter(|e| e.enabled)
+            .min_by_key(|e| e.priority)
+            .map(|e| e.addr)
+    }
+
+    /// Returns all enabled endpoints sorted by priority (lowest value first)
+    pub fn active_endpoints(&self) -> Vec<&PeerEndpoint> {
+        let mut eps: Vec<_> = self.endpoints.iter().filter(|e| e.enabled).collect();
+        eps.sort_by_key(|e| e.priority);
+        eps
+    }
+
+    /// Returns all healthy endpoints (enabled with low failure count) sorted by priority
+    pub fn healthy_endpoints(&self) -> Vec<&PeerEndpoint> {
+        let mut eps: Vec<_> = self.endpoints.iter().filter(|e| e.is_healthy()).collect();
+        eps.sort_by_key(|e| e.priority);
+        eps
+    }
+
+    /// Add an endpoint to this peer
+    ///
+    /// Returns true if added, false if an endpoint with that address already exists.
+    pub fn add_endpoint(&mut self, endpoint: PeerEndpoint) -> bool {
+        if self.endpoints.iter().any(|e| e.addr == endpoint.addr) {
+            false
+        } else {
+            self.endpoints.push(endpoint);
+            true
+        }
+    }
+
+    /// Remove an endpoint by address
+    ///
+    /// Returns the removed endpoint, or None if not found.
+    pub fn remove_endpoint(&mut self, addr: SocketAddr) -> Option<PeerEndpoint> {
+        if let Some(idx) = self.endpoints.iter().position(|e| e.addr == addr) {
+            Some(self.endpoints.remove(idx))
+        } else {
+            None
+        }
+    }
+
+    /// Get a mutable reference to an endpoint by address
+    pub fn get_endpoint_mut(&mut self, addr: SocketAddr) -> Option<&mut PeerEndpoint> {
+        self.endpoints.iter_mut().find(|e| e.addr == addr)
+    }
+
+    /// Check if this peer has any healthy endpoints
+    pub fn has_healthy_endpoint(&self) -> bool {
+        self.endpoints.iter().any(|e| e.is_healthy())
+    }
+
+    /// Get the number of enabled endpoints
+    pub fn endpoint_count(&self) -> usize {
+        self.endpoints.iter().filter(|e| e.enabled).count()
     }
 }
 
@@ -268,7 +497,7 @@ impl Default for PeerMetadata {
             config: PeerConfig {
                 public_key: [0u8; 32],
                 virtual_ip: VirtualIp::HUB,
-                endpoint: None,
+                endpoints: Vec::new(),
                 keepalive: 25,
                 allowed_ips: vec![],
             },
@@ -312,17 +541,53 @@ pub enum NetworkEvent {
         public_key: [u8; 32],
         status: PeerStatus,
     },
+
+    /// A new endpoint was added to a peer (multi-path support)
+    EndpointAdded {
+        public_key: [u8; 32],
+        endpoint: PeerEndpoint,
+    },
+
+    /// An endpoint was removed from a peer (multi-path support)
+    EndpointRemoved {
+        public_key: [u8; 32],
+        endpoint_addr: SocketAddr,
+    },
+
+    /// A local interface was added for multi-path connections
+    LocalInterfaceAdded {
+        bind_ip: std::net::IpAddr,
+        label: Option<String>,
+    },
+
+    /// A local interface was removed
+    LocalInterfaceRemoved {
+        bind_ip: std::net::IpAddr,
+    },
+
+    /// Health status changed for a specific path (local_ip × remote_ip pair)
+    PathHealthChanged {
+        path_id: PathId,
+        local_ip: std::net::IpAddr,
+        remote_addr: SocketAddr,
+        health: f32,
+    },
 }
 
 impl NetworkEvent {
-    /// Returns the public key associated with this event
-    pub fn public_key(&self) -> &[u8; 32] {
+    /// Returns the public key associated with this event, if applicable
+    pub fn public_key(&self) -> Option<&[u8; 32]> {
         match self {
             NetworkEvent::PeerJoined { public_key, .. }
             | NetworkEvent::PeerLeft { public_key }
             | NetworkEvent::EndpointUpdated { public_key, .. }
             | NetworkEvent::LanPeerDiscovered { public_key, .. }
-            | NetworkEvent::ConnectionModeChanged { public_key, .. } => public_key,
+            | NetworkEvent::ConnectionModeChanged { public_key, .. }
+            | NetworkEvent::EndpointAdded { public_key, .. }
+            | NetworkEvent::EndpointRemoved { public_key, .. } => Some(public_key),
+            NetworkEvent::LocalInterfaceAdded { .. }
+            | NetworkEvent::LocalInterfaceRemoved { .. }
+            | NetworkEvent::PathHealthChanged { .. } => None,
         }
     }
 }
@@ -542,12 +807,12 @@ mod tests {
     fn test_peer_config_serialize() {
         let public_key = [42u8; 32];
         let vip = VirtualIp::new(100);
-        let endpoint = "192.168.1.100:51820".parse().unwrap();
+        let endpoint: SocketAddr = "192.168.1.100:51820".parse().unwrap();
 
         let config = PeerConfig {
             public_key,
             virtual_ip: vip,
-            endpoint: Some(endpoint),
+            endpoints: vec![PeerEndpoint::new(endpoint)],
             keepalive: 25,
             allowed_ips: vec![vip.into()],
         };
@@ -557,7 +822,7 @@ mod tests {
         let deserialized: PeerConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(config.public_key, deserialized.public_key);
         assert_eq!(config.virtual_ip, deserialized.virtual_ip);
-        assert_eq!(config.endpoint, deserialized.endpoint);
+        assert_eq!(config.endpoint(), deserialized.endpoint());
         assert_eq!(config.keepalive, deserialized.keepalive);
         assert_eq!(config.allowed_ips.len(), deserialized.allowed_ips.len());
 
@@ -614,7 +879,8 @@ mod tests {
 
         assert_eq!(config.public_key, public_key);
         assert_eq!(config.virtual_ip, vip);
-        assert!(config.endpoint.is_none());
+        assert!(config.endpoint().is_none()); // No endpoints by default
+        assert!(config.endpoints.is_empty());
         assert_eq!(config.keepalive, 25);
         assert_eq!(config.allowed_ips.len(), 1);
         assert_eq!(config.allowed_ips[0], IpAddr::from(vip));
@@ -703,28 +969,43 @@ mod tests {
             public_key: pk,
             virtual_ip: vip,
         };
-        assert_eq!(event1.public_key(), &pk);
+        assert_eq!(event1.public_key(), Some(&pk));
 
         let event2 = NetworkEvent::PeerLeft { public_key: pk };
-        assert_eq!(event2.public_key(), &pk);
+        assert_eq!(event2.public_key(), Some(&pk));
 
         let event3 = NetworkEvent::EndpointUpdated {
             public_key: pk,
             endpoint: "192.168.1.1:51820".parse().unwrap(),
         };
-        assert_eq!(event3.public_key(), &pk);
+        assert_eq!(event3.public_key(), Some(&pk));
 
         let event4 = NetworkEvent::LanPeerDiscovered {
             public_key: pk,
             local_addr: "192.168.1.2:51820".parse().unwrap(),
         };
-        assert_eq!(event4.public_key(), &pk);
+        assert_eq!(event4.public_key(), Some(&pk));
 
         let event5 = NetworkEvent::ConnectionModeChanged {
             public_key: pk,
             status: PeerStatus::DirectP2P,
         };
-        assert_eq!(event5.public_key(), &pk);
+        assert_eq!(event5.public_key(), Some(&pk));
+
+        // Test events that don't have public keys
+        let event6 = NetworkEvent::LocalInterfaceAdded {
+            bind_ip: "10.10.10.1".parse().unwrap(),
+            label: Some("eth0".to_string()),
+        };
+        assert_eq!(event6.public_key(), None);
+
+        let event7 = NetworkEvent::PathHealthChanged {
+            path_id: PathId(12345),
+            local_ip: "10.10.10.1".parse().unwrap(),
+            remote_addr: "10.10.10.2:12345".parse().unwrap(),
+            health: 0.95,
+        };
+        assert_eq!(event7.public_key(), None);
     }
 
     #[test]
@@ -861,5 +1142,313 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: PeerConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.allowed_ips.len(), 3);
+    }
+
+    // ========================================================================
+    // Multi-Path Network Aggregation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_endpoint_priority_constants() {
+        assert!(EndpointPriority::PRIMARY < EndpointPriority::SECONDARY);
+        assert!(EndpointPriority::SECONDARY < EndpointPriority::DEFAULT);
+        assert!(EndpointPriority::DEFAULT < EndpointPriority::FALLBACK);
+
+        assert_eq!(EndpointPriority::PRIMARY.0, 0);
+        assert_eq!(EndpointPriority::SECONDARY.0, 50);
+        assert_eq!(EndpointPriority::DEFAULT.0, 100);
+        assert_eq!(EndpointPriority::FALLBACK.0, 255);
+    }
+
+    #[test]
+    fn test_endpoint_priority_default() {
+        let priority = EndpointPriority::default();
+        assert_eq!(priority, EndpointPriority::DEFAULT);
+    }
+
+    #[test]
+    fn test_endpoint_priority_display() {
+        assert_eq!(format!("{}", EndpointPriority::PRIMARY), "0");
+        assert_eq!(format!("{}", EndpointPriority::DEFAULT), "100");
+    }
+
+    #[test]
+    fn test_path_id_from_ips() {
+        let local1: IpAddr = "192.168.1.10".parse().unwrap();
+        let remote1: IpAddr = "10.0.0.1".parse().unwrap();
+        let local2: IpAddr = "192.168.2.10".parse().unwrap();
+        let remote2: IpAddr = "10.0.0.2".parse().unwrap();
+
+        // Same IPs should produce same PathId
+        let path1a = PathId::from_ips(local1, remote1);
+        let path1b = PathId::from_ips(local1, remote1);
+        assert_eq!(path1a, path1b);
+
+        // Different IPs should produce different PathIds
+        let path2 = PathId::from_ips(local1, remote2);
+        let path3 = PathId::from_ips(local2, remote1);
+        let path4 = PathId::from_ips(local2, remote2);
+
+        assert_ne!(path1a, path2);
+        assert_ne!(path1a, path3);
+        assert_ne!(path2, path3);
+        assert_ne!(path3, path4);
+    }
+
+    #[test]
+    fn test_path_id_display() {
+        let path = PathId(0x12345678);
+        assert_eq!(format!("{}", path), "path:12345678");
+    }
+
+    #[test]
+    fn test_peer_endpoint_new() {
+        let addr: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let ep = PeerEndpoint::new(addr);
+
+        assert_eq!(ep.addr, addr);
+        assert_eq!(ep.priority, EndpointPriority::DEFAULT);
+        assert!(ep.enabled);
+        assert!(ep.label.is_none());
+        assert!(ep.last_success_ms.is_none());
+        assert_eq!(ep.failure_count, 0);
+    }
+
+    #[test]
+    fn test_peer_endpoint_builders() {
+        let addr: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let ep = PeerEndpoint::new(addr)
+            .with_priority(EndpointPriority::PRIMARY)
+            .with_label("eth0")
+            .with_enabled(false);
+
+        assert_eq!(ep.priority, EndpointPriority::PRIMARY);
+        assert_eq!(ep.label, Some("eth0".to_string()));
+        assert!(!ep.enabled);
+    }
+
+    #[test]
+    fn test_peer_endpoint_health_tracking() {
+        let addr: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let mut ep = PeerEndpoint::new(addr);
+
+        // Initially healthy
+        assert!(ep.is_healthy());
+        assert_eq!(ep.failure_count, 0);
+
+        // Record failures
+        ep.record_failure();
+        assert_eq!(ep.failure_count, 1);
+        assert!(ep.is_healthy());
+
+        ep.record_failure();
+        ep.record_failure();
+        assert_eq!(ep.failure_count, 3);
+        assert!(!ep.is_healthy()); // 3 failures = unhealthy
+
+        // Record success resets failure count
+        ep.record_success();
+        assert_eq!(ep.failure_count, 0);
+        assert!(ep.is_healthy());
+        assert!(ep.last_success_ms.is_some());
+    }
+
+    #[test]
+    fn test_peer_endpoint_display() {
+        let addr: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+
+        let ep1 = PeerEndpoint::new(addr);
+        assert_eq!(format!("{}", ep1), "192.168.1.100:51820");
+
+        let ep2 = PeerEndpoint::new(addr).with_label("eth0");
+        assert_eq!(format!("{}", ep2), "eth0@192.168.1.100:51820");
+    }
+
+    #[test]
+    fn test_peer_endpoint_serialize() {
+        let addr: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let ep = PeerEndpoint::new(addr)
+            .with_priority(EndpointPriority::SECONDARY)
+            .with_label("bond0");
+
+        // JSON roundtrip
+        let json = serde_json::to_string(&ep).unwrap();
+        let deserialized: PeerEndpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(ep.addr, deserialized.addr);
+        assert_eq!(ep.priority, deserialized.priority);
+        assert_eq!(ep.label, deserialized.label);
+
+        // MessagePack roundtrip
+        let msgpack = rmp_serde::to_vec(&ep).unwrap();
+        let deserialized: PeerEndpoint = rmp_serde::from_slice(&msgpack).unwrap();
+        assert_eq!(ep.addr, deserialized.addr);
+    }
+
+    #[test]
+    fn test_peer_config_with_endpoint() {
+        let public_key = [10u8; 32];
+        let vip = VirtualIp::new(50);
+        let endpoint: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+
+        let config = PeerConfig::with_endpoint(public_key, vip, endpoint);
+
+        assert_eq!(config.public_key, public_key);
+        assert_eq!(config.virtual_ip, vip);
+        assert_eq!(config.endpoints.len(), 1);
+        assert_eq!(config.endpoint(), Some(endpoint));
+    }
+
+    #[test]
+    fn test_peer_config_multi_endpoint() {
+        let public_key = [11u8; 32];
+        let vip = VirtualIp::new(60);
+        let mut config = PeerConfig::new(public_key, vip);
+
+        let ep1: SocketAddr = "10.10.10.2:51820".parse().unwrap();
+        let ep2: SocketAddr = "10.10.11.2:51820".parse().unwrap();
+
+        // Add endpoints with different priorities
+        config.add_endpoint(
+            PeerEndpoint::new(ep1)
+                .with_priority(EndpointPriority::SECONDARY)
+                .with_label("eth1"),
+        );
+        config.add_endpoint(
+            PeerEndpoint::new(ep2)
+                .with_priority(EndpointPriority::PRIMARY)
+                .with_label("eth0"),
+        );
+
+        assert_eq!(config.endpoints.len(), 2);
+
+        // endpoint() returns highest priority (lowest value)
+        assert_eq!(config.endpoint(), Some(ep2));
+
+        // active_endpoints() returns sorted by priority
+        let active = config.active_endpoints();
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[0].addr, ep2); // PRIMARY first
+        assert_eq!(active[1].addr, ep1); // SECONDARY second
+    }
+
+    #[test]
+    fn test_peer_config_add_remove_endpoint() {
+        let public_key = [12u8; 32];
+        let vip = VirtualIp::new(70);
+        let mut config = PeerConfig::new(public_key, vip);
+
+        let ep1: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let ep2: SocketAddr = "192.168.2.100:51820".parse().unwrap();
+
+        // Add first endpoint
+        assert!(config.add_endpoint(PeerEndpoint::new(ep1)));
+        assert_eq!(config.endpoints.len(), 1);
+
+        // Try to add duplicate
+        assert!(!config.add_endpoint(PeerEndpoint::new(ep1)));
+        assert_eq!(config.endpoints.len(), 1);
+
+        // Add second endpoint
+        assert!(config.add_endpoint(PeerEndpoint::new(ep2)));
+        assert_eq!(config.endpoints.len(), 2);
+
+        // Remove first endpoint
+        let removed = config.remove_endpoint(ep1);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().addr, ep1);
+        assert_eq!(config.endpoints.len(), 1);
+
+        // Try to remove non-existent
+        assert!(config.remove_endpoint(ep1).is_none());
+    }
+
+    #[test]
+    fn test_peer_config_healthy_endpoints() {
+        let public_key = [13u8; 32];
+        let vip = VirtualIp::new(80);
+        let mut config = PeerConfig::new(public_key, vip);
+
+        let ep1: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let ep2: SocketAddr = "192.168.2.100:51820".parse().unwrap();
+
+        config.add_endpoint(PeerEndpoint::new(ep1));
+        config.add_endpoint(PeerEndpoint::new(ep2));
+
+        // All healthy initially
+        assert_eq!(config.healthy_endpoints().len(), 2);
+        assert!(config.has_healthy_endpoint());
+
+        // Make one unhealthy
+        if let Some(ep) = config.get_endpoint_mut(ep1) {
+            ep.record_failure();
+            ep.record_failure();
+            ep.record_failure();
+        }
+
+        assert_eq!(config.healthy_endpoints().len(), 1);
+        assert!(config.has_healthy_endpoint());
+
+        // Make both unhealthy
+        if let Some(ep) = config.get_endpoint_mut(ep2) {
+            ep.record_failure();
+            ep.record_failure();
+            ep.record_failure();
+        }
+
+        assert_eq!(config.healthy_endpoints().len(), 0);
+        assert!(!config.has_healthy_endpoint());
+    }
+
+    #[test]
+    fn test_peer_config_endpoint_count() {
+        let public_key = [14u8; 32];
+        let vip = VirtualIp::new(90);
+        let mut config = PeerConfig::new(public_key, vip);
+
+        assert_eq!(config.endpoint_count(), 0);
+
+        let ep1: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let ep2: SocketAddr = "192.168.2.100:51820".parse().unwrap();
+
+        config.add_endpoint(PeerEndpoint::new(ep1));
+        assert_eq!(config.endpoint_count(), 1);
+
+        config.add_endpoint(PeerEndpoint::new(ep2).with_enabled(false));
+        assert_eq!(config.endpoint_count(), 1); // disabled not counted
+
+        // Enable second endpoint
+        if let Some(ep) = config.get_endpoint_mut(ep2) {
+            ep.enabled = true;
+        }
+        assert_eq!(config.endpoint_count(), 2);
+    }
+
+    #[test]
+    fn test_peer_config_multi_endpoint_serialize() {
+        let public_key = [15u8; 32];
+        let vip = VirtualIp::new(100);
+        let mut config = PeerConfig::new(public_key, vip);
+
+        config.add_endpoint(
+            PeerEndpoint::new("10.10.10.2:51820".parse().unwrap())
+                .with_priority(EndpointPriority::PRIMARY)
+                .with_label("eth0"),
+        );
+        config.add_endpoint(
+            PeerEndpoint::new("10.10.11.2:51820".parse().unwrap())
+                .with_priority(EndpointPriority::SECONDARY)
+                .with_label("eth1"),
+        );
+
+        // JSON roundtrip
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: PeerConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config.endpoints.len(), deserialized.endpoints.len());
+        assert_eq!(config.endpoint(), deserialized.endpoint());
+
+        // MessagePack roundtrip
+        let msgpack = rmp_serde::to_vec(&config).unwrap();
+        let deserialized: PeerConfig = rmp_serde::from_slice(&msgpack).unwrap();
+        assert_eq!(config.endpoints.len(), deserialized.endpoints.len());
     }
 }

@@ -517,9 +517,672 @@ impl WarpEndpoint {
     }
 }
 
+// ============================================================================
+// Multi-Path Network Aggregation Types
+// ============================================================================
+
+/// Configuration for a local network interface
+///
+/// Represents a local IP address that can be used as a source for outgoing
+/// connections. Used for multi-path network aggregation where traffic is
+/// distributed across multiple physical network interfaces.
+#[derive(Debug, Clone)]
+pub struct LocalInterface {
+    /// Local IP address to bind outgoing connections to
+    pub bind_ip: std::net::IpAddr,
+
+    /// Optional human-readable label (e.g., "eth0", "bond0", "10gbe-1")
+    pub label: Option<String>,
+
+    /// Optional interface capacity in bits per second
+    /// Used for weighted load balancing across interfaces
+    pub capacity_bps: Option<u64>,
+
+    /// Whether this interface is currently enabled
+    pub enabled: bool,
+}
+
+impl LocalInterface {
+    /// Create a new local interface configuration
+    pub fn new(bind_ip: std::net::IpAddr) -> Self {
+        Self {
+            bind_ip,
+            label: None,
+            capacity_bps: None,
+            enabled: true,
+        }
+    }
+
+    /// Builder: set label
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Builder: set capacity
+    pub fn with_capacity(mut self, capacity_bps: u64) -> Self {
+        self.capacity_bps = Some(capacity_bps);
+        self
+    }
+
+    /// Builder: set enabled state
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Generate a binding address with ephemeral port
+    pub fn bind_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.bind_ip, 0)
+    }
+}
+
+impl std::fmt::Display for LocalInterface {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(ref label) = self.label {
+            write!(f, "{}({})", label, self.bind_ip)
+        } else {
+            write!(f, "{}", self.bind_ip)
+        }
+    }
+}
+
+/// Multi-path endpoint manager
+///
+/// Manages multiple QUIC endpoints, each bound to a different local IP address.
+/// This enables multi-path network aggregation where connections can be
+/// explicitly routed through specific network interfaces.
+///
+/// # Example
+///
+/// ```ignore
+/// let interfaces = vec![
+///     LocalInterface::new("10.10.10.1".parse().unwrap()).with_label("eth0"),
+///     LocalInterface::new("10.10.11.1".parse().unwrap()).with_label("eth1"),
+/// ];
+///
+/// let multi_ep = MultiPathEndpoint::new(interfaces).await?;
+///
+/// // Connect via specific interface
+/// let conn1 = multi_ep.connect_via(
+///     "10.10.10.1".parse().unwrap(),
+///     "10.10.10.2:51820".parse().unwrap(),
+///     "peer1"
+/// ).await?;
+/// ```
+pub struct MultiPathEndpoint {
+    /// Map of local IP to quinn Endpoint
+    endpoints: std::collections::HashMap<std::net::IpAddr, Endpoint>,
+
+    /// Configuration for each interface
+    interfaces: Vec<LocalInterface>,
+
+    /// QUIC client configuration (shared across all endpoints)
+    client_config: quinn::ClientConfig,
+
+    /// Local capabilities
+    local_caps: Capabilities,
+}
+
+impl MultiPathEndpoint {
+    /// Create a new multi-path endpoint with the given interfaces (insecure, for testing)
+    ///
+    /// Each interface gets its own QUIC endpoint bound to that specific IP address.
+    /// This ensures outgoing connections use the correct source IP for each path.
+    #[cfg(any(test, feature = "insecure-tls"))]
+    pub async fn new(interfaces: Vec<LocalInterface>) -> Result<Self> {
+        Self::new_with_caps(interfaces, Capabilities::default()).await
+    }
+
+    /// Create a new multi-path endpoint with custom capabilities (insecure, for testing)
+    #[cfg(any(test, feature = "insecure-tls"))]
+    pub async fn new_with_caps(interfaces: Vec<LocalInterface>, caps: Capabilities) -> Result<Self> {
+        let rustls_config = client_config_insecure()?;
+        let quinn_config = quinn::ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(rustls_config)
+                .map_err(|e| Error::Tls(format!("Failed to create QUIC client config: {}", e)))?,
+        ));
+
+        Self::create_endpoints(interfaces, quinn_config, caps).await
+    }
+
+    /// Create a new secure multi-path endpoint with root certificate store
+    pub async fn new_secure(
+        interfaces: Vec<LocalInterface>,
+        roots: rustls::RootCertStore,
+    ) -> Result<Self> {
+        Self::new_secure_with_caps(interfaces, roots, Capabilities::default()).await
+    }
+
+    /// Create a new secure multi-path endpoint with custom capabilities
+    pub async fn new_secure_with_caps(
+        interfaces: Vec<LocalInterface>,
+        roots: rustls::RootCertStore,
+        caps: Capabilities,
+    ) -> Result<Self> {
+        let rustls_config = client_config(roots)?;
+        let quinn_config = quinn::ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(rustls_config)
+                .map_err(|e| Error::Tls(format!("Failed to create QUIC client config: {}", e)))?,
+        ));
+
+        Self::create_endpoints(interfaces, quinn_config, caps).await
+    }
+
+    /// Internal helper to create endpoints for each interface
+    async fn create_endpoints(
+        interfaces: Vec<LocalInterface>,
+        quinn_config: quinn::ClientConfig,
+        caps: Capabilities,
+    ) -> Result<Self> {
+        let mut endpoints = std::collections::HashMap::new();
+
+        for iface in &interfaces {
+            if !iface.enabled {
+                tracing::debug!("Skipping disabled interface: {}", iface);
+                continue;
+            }
+
+            let bind_addr = iface.bind_addr();
+            let mut endpoint = Endpoint::client(bind_addr).map_err(|e| {
+                Error::Connection(format!(
+                    "Failed to create endpoint bound to {}: {}",
+                    bind_addr, e
+                ))
+            })?;
+
+            endpoint.set_default_client_config(quinn_config.clone());
+            endpoints.insert(iface.bind_ip, endpoint);
+
+            tracing::info!(
+                "Created multi-path endpoint bound to {} (label: {:?})",
+                bind_addr,
+                iface.label
+            );
+        }
+
+        if endpoints.is_empty() {
+            return Err(Error::Configuration(
+                "No enabled interfaces provided for multi-path endpoint".into(),
+            ));
+        }
+
+        Ok(Self {
+            endpoints,
+            interfaces,
+            client_config: quinn_config,
+            local_caps: caps,
+        })
+    }
+
+    /// Connect to a remote address using a specific local interface
+    ///
+    /// This is the key method for multi-path aggregation - it ensures the
+    /// connection is bound to the specified local IP, guaranteeing traffic
+    /// flows through the correct physical NIC.
+    pub async fn connect_via(
+        &self,
+        local_ip: std::net::IpAddr,
+        remote_addr: SocketAddr,
+        server_name: &str,
+    ) -> Result<WarpConnection> {
+        let endpoint = self.endpoints.get(&local_ip).ok_or_else(|| {
+            Error::Connection(format!("No endpoint bound to local IP {}", local_ip))
+        })?;
+
+        let connection = endpoint
+            .connect(remote_addr, server_name)
+            .map_err(|e| Error::Connection(format!("Failed to initiate connection: {}", e)))?
+            .await
+            .map_err(|e| Error::Connection(format!("Connection failed: {}", e)))?;
+
+        tracing::info!(
+            "Multi-path connection established: {} -> {}",
+            local_ip,
+            remote_addr
+        );
+
+        Ok(WarpConnection::new(connection, self.local_caps.clone()))
+    }
+
+    /// Connect to a remote address using any available interface
+    ///
+    /// Selects the first available enabled interface. For load balancing,
+    /// use `connect_via` with explicit interface selection.
+    pub async fn connect(&self, remote_addr: SocketAddr, server_name: &str) -> Result<WarpConnection> {
+        // Use first available interface
+        let local_ip = self
+            .interfaces
+            .iter()
+            .find(|i| i.enabled)
+            .map(|i| i.bind_ip)
+            .ok_or_else(|| Error::Connection("No enabled interfaces available".into()))?;
+
+        self.connect_via(local_ip, remote_addr, server_name).await
+    }
+
+    /// Get all available local interface IPs
+    pub fn local_ips(&self) -> Vec<std::net::IpAddr> {
+        self.endpoints.keys().copied().collect()
+    }
+
+    /// Get all configured interfaces
+    pub fn interfaces(&self) -> &[LocalInterface] {
+        &self.interfaces
+    }
+
+    /// Get enabled interface count
+    pub fn enabled_interface_count(&self) -> usize {
+        self.interfaces.iter().filter(|i| i.enabled).count()
+    }
+
+    /// Get interface by IP
+    pub fn get_interface(&self, ip: std::net::IpAddr) -> Option<&LocalInterface> {
+        self.interfaces.iter().find(|i| i.bind_ip == ip)
+    }
+
+    /// Check if an interface is available
+    pub fn has_interface(&self, ip: std::net::IpAddr) -> bool {
+        self.endpoints.contains_key(&ip)
+    }
+
+    /// Add a new interface at runtime
+    ///
+    /// Creates a new QUIC endpoint bound to the interface's IP address.
+    pub async fn add_interface(&mut self, iface: LocalInterface) -> Result<()> {
+        if self.endpoints.contains_key(&iface.bind_ip) {
+            return Err(Error::Configuration(format!(
+                "Interface {} already exists",
+                iface.bind_ip
+            )));
+        }
+
+        if iface.enabled {
+            let bind_addr = iface.bind_addr();
+            let mut endpoint = Endpoint::client(bind_addr).map_err(|e| {
+                Error::Connection(format!(
+                    "Failed to create endpoint bound to {}: {}",
+                    bind_addr, e
+                ))
+            })?;
+
+            endpoint.set_default_client_config(self.client_config.clone());
+            self.endpoints.insert(iface.bind_ip, endpoint);
+
+            tracing::info!("Added multi-path interface: {}", iface);
+        }
+
+        self.interfaces.push(iface);
+        Ok(())
+    }
+
+    /// Remove an interface at runtime
+    ///
+    /// Closes the endpoint and removes it from the pool.
+    pub fn remove_interface(&mut self, ip: std::net::IpAddr) -> Option<LocalInterface> {
+        if let Some(endpoint) = self.endpoints.remove(&ip) {
+            endpoint.close(0u32.into(), b"interface removed");
+        }
+
+        if let Some(idx) = self.interfaces.iter().position(|i| i.bind_ip == ip) {
+            Some(self.interfaces.remove(idx))
+        } else {
+            None
+        }
+    }
+
+    /// Close all endpoints
+    pub fn close(&self) {
+        for endpoint in self.endpoints.values() {
+            endpoint.close(0u32.into(), b"multi-path endpoint closed");
+        }
+    }
+
+    /// Wait for all endpoints to be idle
+    pub async fn wait_idle(&self) {
+        for endpoint in self.endpoints.values() {
+            endpoint.wait_idle().await;
+        }
+    }
+}
+
+impl std::fmt::Debug for MultiPathEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiPathEndpoint")
+            .field("interfaces", &self.interfaces)
+            .field("endpoint_count", &self.endpoints.len())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // =========================================================================
+    // LocalInterface Tests
+    // =========================================================================
+
+    #[test]
+    fn test_local_interface_creation() {
+        let iface = LocalInterface::new("10.10.10.1".parse().unwrap());
+        assert_eq!(iface.bind_ip, "10.10.10.1".parse::<std::net::IpAddr>().unwrap());
+        assert!(iface.enabled);
+        assert!(iface.label.is_none());
+        assert!(iface.capacity_bps.is_none());
+    }
+
+    #[test]
+    fn test_local_interface_builders() {
+        let iface = LocalInterface::new("192.168.1.100".parse().unwrap())
+            .with_label("eth0")
+            .with_capacity(10_000_000_000) // 10 Gbps
+            .with_enabled(true);
+
+        assert_eq!(iface.bind_ip, "192.168.1.100".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(iface.label, Some("eth0".to_string()));
+        assert_eq!(iface.capacity_bps, Some(10_000_000_000));
+        assert!(iface.enabled);
+    }
+
+    #[test]
+    fn test_local_interface_disabled() {
+        let iface = LocalInterface::new("10.0.0.1".parse().unwrap())
+            .with_enabled(false);
+
+        assert!(!iface.enabled);
+    }
+
+    #[test]
+    fn test_local_interface_bind_addr() {
+        let iface = LocalInterface::new("10.10.10.1".parse().unwrap());
+        let bind_addr = iface.bind_addr();
+
+        assert_eq!(bind_addr.ip(), "10.10.10.1".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(bind_addr.port(), 0); // Ephemeral port
+    }
+
+    #[test]
+    fn test_local_interface_display_with_label() {
+        let iface = LocalInterface::new("10.10.10.1".parse().unwrap())
+            .with_label("bond0");
+
+        assert_eq!(format!("{}", iface), "bond0(10.10.10.1)");
+    }
+
+    #[test]
+    fn test_local_interface_display_without_label() {
+        let iface = LocalInterface::new("192.168.1.1".parse().unwrap());
+
+        assert_eq!(format!("{}", iface), "192.168.1.1");
+    }
+
+    #[test]
+    fn test_local_interface_ipv6() {
+        let iface = LocalInterface::new("::1".parse().unwrap())
+            .with_label("lo");
+
+        assert_eq!(iface.bind_ip, "::1".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(format!("{}", iface), "lo(::1)");
+    }
+
+    // =========================================================================
+    // MultiPathEndpoint Tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_creation_localhost() {
+        // Use localhost since it's always available
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap())
+                .with_label("lo")
+                .with_capacity(1_000_000_000),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await;
+        assert!(mp.is_ok());
+
+        let mp = mp.unwrap();
+        assert_eq!(mp.enabled_interface_count(), 1);
+        assert!(mp.has_interface("127.0.0.1".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_local_ips() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+        let ips = mp.local_ips();
+
+        assert_eq!(ips.len(), 1);
+        assert!(ips.contains(&"127.0.0.1".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_interfaces() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap())
+                .with_label("lo")
+                .with_capacity(1_000_000_000),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        assert_eq!(mp.interfaces().len(), 1);
+        assert_eq!(mp.interfaces()[0].label, Some("lo".to_string()));
+        assert_eq!(mp.interfaces()[0].capacity_bps, Some(1_000_000_000));
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_get_interface() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        let iface = mp.get_interface("127.0.0.1".parse().unwrap());
+        assert!(iface.is_some());
+        assert_eq!(iface.unwrap().label, Some("lo".to_string()));
+
+        let missing = mp.get_interface("192.168.1.1".parse().unwrap());
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_disabled_interfaces_skipped() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap())
+                .with_label("lo")
+                .with_enabled(true),
+            LocalInterface::new("192.168.99.99".parse().unwrap())
+                .with_label("disabled-eth")
+                .with_enabled(false), // Disabled - should not create endpoint
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        // Should only have 1 enabled endpoint
+        assert_eq!(mp.enabled_interface_count(), 1);
+        assert!(mp.has_interface("127.0.0.1".parse().unwrap()));
+        // Disabled interface exists in config but not as endpoint
+        assert!(!mp.has_interface("192.168.99.99".parse().unwrap()));
+        // But it should still be in interfaces list
+        assert_eq!(mp.interfaces().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_no_enabled_interfaces_error() {
+        let interfaces = vec![
+            LocalInterface::new("10.10.10.1".parse().unwrap())
+                .with_enabled(false),
+        ];
+
+        let result = MultiPathEndpoint::new(interfaces).await;
+        assert!(result.is_err());
+
+        match result {
+            Err(Error::Configuration(msg)) => {
+                assert!(msg.contains("No enabled interfaces"));
+            }
+            _ => panic!("Expected Configuration error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_add_interface() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+        assert_eq!(mp.enabled_interface_count(), 1);
+
+        // Add another localhost variant (IPv6)
+        let new_iface = LocalInterface::new("::1".parse().unwrap())
+            .with_label("lo6");
+
+        let result = mp.add_interface(new_iface).await;
+        assert!(result.is_ok());
+
+        assert_eq!(mp.enabled_interface_count(), 2);
+        assert!(mp.has_interface("::1".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_add_duplicate_interface_error() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        // Try to add duplicate
+        let duplicate = LocalInterface::new("127.0.0.1".parse().unwrap())
+            .with_label("lo-dup");
+
+        let result = mp.add_interface(duplicate).await;
+        assert!(result.is_err());
+
+        match result {
+            Err(Error::Configuration(msg)) => {
+                assert!(msg.contains("already exists"));
+            }
+            _ => panic!("Expected Configuration error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_remove_interface() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+            LocalInterface::new("::1".parse().unwrap()).with_label("lo6"),
+        ];
+
+        let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+        assert_eq!(mp.enabled_interface_count(), 2);
+
+        // Remove one interface
+        let removed = mp.remove_interface("::1".parse().unwrap());
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().label, Some("lo6".to_string()));
+
+        assert_eq!(mp.enabled_interface_count(), 1);
+        assert!(!mp.has_interface("::1".parse().unwrap()));
+        assert!(mp.has_interface("127.0.0.1".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_remove_nonexistent() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        let removed = mp.remove_interface("10.10.10.1".parse().unwrap());
+        assert!(removed.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_connect_via_invalid_interface() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        // Try to connect via interface that doesn't exist
+        let result = mp.connect_via(
+            "10.10.10.1".parse().unwrap(),
+            "127.0.0.1:12345".parse().unwrap(),
+            "localhost",
+        ).await;
+
+        assert!(result.is_err());
+        match result {
+            Err(Error::Connection(msg)) => {
+                assert!(msg.contains("No endpoint bound to"));
+            }
+            _ => panic!("Expected Connection error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_connect_via_localhost() {
+        // Create a server
+        let server = WarpEndpoint::server("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let server_addr = server.local_addr().unwrap();
+
+        let server_task = tokio::spawn(async move {
+            let conn = server.accept().await.unwrap();
+            conn.handshake_server().await.unwrap();
+            conn
+        });
+
+        // Create multi-path endpoint with localhost
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+
+        // Connect via specific interface
+        let conn = mp.connect_via(
+            "127.0.0.1".parse().unwrap(),
+            server_addr,
+            "localhost",
+        ).await.unwrap();
+
+        let params = conn.handshake().await.unwrap();
+        assert_eq!(params.compression, "zstd");
+
+        let _server_conn = server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multipath_endpoint_debug_format() {
+        let interfaces = vec![
+            LocalInterface::new("127.0.0.1".parse().unwrap())
+                .with_label("lo")
+                .with_capacity(1_000_000_000),
+        ];
+
+        let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
+        let debug_str = format!("{:?}", mp);
+
+        assert!(debug_str.contains("MultiPathEndpoint"));
+        assert!(debug_str.contains("interfaces"));
+        assert!(debug_str.contains("endpoint_count"));
+    }
+
+    // =========================================================================
+    // Original WarpEndpoint Tests
+    // =========================================================================
 
     #[tokio::test]
     async fn test_endpoint_creation() {

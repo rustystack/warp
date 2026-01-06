@@ -22,6 +22,11 @@ pub struct CostConfig {
     pub health_weight: f32,
     /// Weight for load balancing term (0.0-1.0)
     pub load_weight: f32,
+    /// Weight for path diversity term (0.0-1.0)
+    ///
+    /// When set > 0, paths using different network interfaces will be
+    /// preferred to maximize aggregate throughput across multiple NICs.
+    pub diversity_weight: f32,
     /// Maximum acceptable RTT in microseconds for normalization
     pub max_acceptable_rtt_us: u32,
 }
@@ -33,6 +38,7 @@ impl Default for CostConfig {
             rtt_weight: 0.3,
             health_weight: 0.2,
             load_weight: 0.2,
+            diversity_weight: 0.0, // Disabled by default for backwards compat
             max_acceptable_rtt_us: 100_000, // 100ms
         }
     }
@@ -51,6 +57,7 @@ impl CostConfig {
             rtt_weight,
             health_weight,
             load_weight,
+            diversity_weight: 0.0,
             max_acceptable_rtt_us: 100_000,
         }
     }
@@ -62,6 +69,7 @@ impl CostConfig {
             rtt_weight: 0.2,
             health_weight: 0.1,
             load_weight: 0.1,
+            diversity_weight: 0.0,
             max_acceptable_rtt_us: 100_000,
         }
     }
@@ -73,6 +81,21 @@ impl CostConfig {
             rtt_weight: 0.6,
             health_weight: 0.2,
             load_weight: 0.1,
+            diversity_weight: 0.0,
+            max_acceptable_rtt_us: 100_000,
+        }
+    }
+
+    /// Create a config optimized for multi-path aggregation
+    ///
+    /// Prioritizes using diverse network paths to maximize aggregate throughput.
+    pub fn multi_path() -> Self {
+        Self {
+            bandwidth_weight: 0.25,
+            rtt_weight: 0.25,
+            health_weight: 0.15,
+            load_weight: 0.15,
+            diversity_weight: 0.2, // Higher diversity weight for multi-NIC
             max_acceptable_rtt_us: 100_000,
         }
     }
@@ -80,6 +103,12 @@ impl CostConfig {
     /// Set maximum acceptable RTT
     pub fn with_max_rtt(mut self, max_rtt_us: u32) -> Self {
         self.max_acceptable_rtt_us = max_rtt_us;
+        self
+    }
+
+    /// Set diversity weight for multi-path scheduling
+    pub fn with_diversity_weight(mut self, weight: f32) -> Self {
+        self.diversity_weight = weight.clamp(0.0, 1.0);
         self
     }
 }
@@ -505,6 +534,33 @@ mod tests {
         let config = CostConfig::latency_priority();
         assert_eq!(config.rtt_weight, 0.6);
         assert!(config.rtt_weight > config.bandwidth_weight);
+    }
+
+    #[test]
+    fn test_cost_config_multi_path() {
+        let config = CostConfig::multi_path();
+        assert_eq!(config.diversity_weight, 0.2);
+        assert!(config.diversity_weight > 0.0);
+        // Weights should still sum to approximately 1.0
+        let sum = config.bandwidth_weight
+            + config.rtt_weight
+            + config.health_weight
+            + config.load_weight
+            + config.diversity_weight;
+        assert!((sum - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cost_config_with_diversity_weight() {
+        let config = CostConfig::default().with_diversity_weight(0.15);
+        assert_eq!(config.diversity_weight, 0.15);
+
+        // Test clamping
+        let clamped = CostConfig::default().with_diversity_weight(1.5);
+        assert_eq!(clamped.diversity_weight, 1.0);
+
+        let clamped_neg = CostConfig::default().with_diversity_weight(-0.5);
+        assert_eq!(clamped_neg.diversity_weight, 0.0);
     }
 
     #[test]

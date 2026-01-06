@@ -34,6 +34,10 @@ pub enum Error {
     /// TLS error
     #[error("TLS error: {0}")]
     Tls(String),
+
+    /// Configuration error
+    #[error("Configuration error: {0}")]
+    Configuration(String),
 }
 
 /// Result type for network operations
@@ -48,4 +52,4 @@ pub use protocol::{NegotiatedParams, ProtocolState};
 #[cfg(any(test, feature = "insecure-tls"))]
 pub use tls::client_config_insecure;
 pub use tls::{client_config, generate_self_signed, server_config};
-pub use transport::{WarpConnection, WarpEndpoint};
+pub use transport::{LocalInterface, MultiPathEndpoint, WarpConnection, WarpEndpoint};

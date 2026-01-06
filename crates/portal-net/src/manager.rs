@@ -17,7 +17,7 @@ use warp_net::{WarpConnection, WarpEndpoint};
 use crate::allocator::{BitmapAllocator, IpAllocator};
 use crate::discovery::MdnsDiscovery;
 use crate::peer::PeerManager;
-use crate::types::{NetworkConfig, NetworkEvent, PeerConfig, PeerMetadata, PeerStatus, VirtualIp};
+use crate::types::{NetworkConfig, NetworkEvent, PeerConfig, PeerEndpoint, PeerMetadata, PeerStatus, VirtualIp};
 use crate::{PortalNetError, Result};
 
 /// Current network state
@@ -229,7 +229,7 @@ impl NetworkManager {
         match state.peer_manager.get_by_key(target) {
             Some(peer) => {
                 // Prefer direct P2P if endpoint is known
-                if let Some(endpoint) = peer.config.endpoint {
+                if let Some(endpoint) = peer.config.endpoint() {
                     Ok(ConnectionRoute::Direct { endpoint })
                 } else {
                     // Fall back to relay via Hub
@@ -375,6 +375,59 @@ impl NetworkManager {
         self.update_network_state().await;
 
         Ok(())
+    }
+
+    /// Adds a new endpoint to an existing peer (multi-path support)
+    ///
+    /// This allows adding additional network paths to a peer for
+    /// multi-NIC aggregation and failover.
+    pub async fn add_peer_endpoint(
+        &self,
+        key: &[u8; 32],
+        endpoint: PeerEndpoint,
+    ) -> Result<()> {
+        let state = self.state.read().await;
+        state.peer_manager.add_endpoint(key, endpoint.clone())?;
+
+        // Emit event
+        let _ = state.event_tx.send(NetworkEvent::EndpointAdded {
+            public_key: *key,
+            endpoint,
+        });
+
+        Ok(())
+    }
+
+    /// Removes an endpoint from a peer
+    ///
+    /// Removes a specific endpoint from a peer's endpoint list.
+    /// Returns the removed endpoint if it existed.
+    pub async fn remove_peer_endpoint(
+        &self,
+        key: &[u8; 32],
+        endpoint_addr: SocketAddr,
+    ) -> Result<Option<PeerEndpoint>> {
+        let state = self.state.read().await;
+        let removed = state.peer_manager.remove_endpoint(key, endpoint_addr)?;
+
+        if removed.is_some() {
+            let _ = state.event_tx.send(NetworkEvent::EndpointRemoved {
+                public_key: *key,
+                endpoint_addr,
+            });
+        }
+
+        Ok(removed)
+    }
+
+    /// Get all endpoints for a peer
+    pub async fn get_peer_endpoints(&self, key: &[u8; 32]) -> Result<Vec<PeerEndpoint>> {
+        let state = self.state.read().await;
+        state
+            .peer_manager
+            .get_by_key(key)
+            .map(|peer| peer.config.endpoints.clone())
+            .ok_or_else(|| PortalNetError::PeerNotFound(hex::encode(key)))
     }
 
     /// Updates the overall network state based on peer connectivity
@@ -625,7 +678,7 @@ mod tests {
             .unwrap();
 
         let peer = manager.get_peer(&test_key(2)).await.unwrap();
-        assert_eq!(peer.config.endpoint, Some(endpoint));
+        assert_eq!(peer.config.endpoint(), Some(endpoint));
     }
 
     #[tokio::test]
@@ -654,9 +707,8 @@ mod tests {
         let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
         manager.start().await.unwrap();
 
-        let mut peer_config = PeerConfig::new(test_key(2), VirtualIp::new(100));
         let endpoint: SocketAddr = "192.168.1.100:51820".parse().unwrap();
-        peer_config.endpoint = Some(endpoint);
+        let peer_config = PeerConfig::with_endpoint(test_key(2), VirtualIp::new(100), endpoint);
 
         manager.add_peer(peer_config).await.unwrap();
 
@@ -699,8 +751,8 @@ mod tests {
         let manager = NetworkManager::new(config, test_key(1)).await.unwrap();
         manager.start().await.unwrap();
 
-        let mut peer_config = PeerConfig::new(test_key(2), VirtualIp::new(100));
-        peer_config.endpoint = Some("192.168.1.100:51820".parse().unwrap());
+        let endpoint: SocketAddr = "192.168.1.100:51820".parse().unwrap();
+        let peer_config = PeerConfig::with_endpoint(test_key(2), VirtualIp::new(100), endpoint);
         manager.add_peer(peer_config).await.unwrap();
 
         let data = b"test data";
@@ -746,7 +798,7 @@ mod tests {
             .unwrap();
 
         let event = rx.recv().await.unwrap();
-        assert_eq!(event.public_key(), &test_key(2));
+        assert_eq!(event.public_key(), Some(&test_key(2)));
     }
 
     #[tokio::test]

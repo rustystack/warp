@@ -6799,6 +6799,7 @@ dependencies = [
  "criterion",
  "dashmap 6.1.0",
  "parking_lot 0.12.5",
+ "portal-net",
  "proptest",
  "rayon",
  "rmp-serde",

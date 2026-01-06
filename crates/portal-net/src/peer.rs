@@ -9,7 +9,7 @@
 use dashmap::DashMap;
 use std::net::SocketAddr;
 
-use crate::types::{PeerConfig, PeerMetadata, PeerStatus, VirtualIp};
+use crate::types::{EndpointPriority, PeerConfig, PeerEndpoint, PeerMetadata, PeerStatus, VirtualIp};
 use crate::{PortalNetError, Result};
 
 /// Manages peer configurations and routing for the Portal mesh network
@@ -81,18 +81,66 @@ impl PeerManager {
         }
     }
 
-    /// Updates a peer's endpoint address
+    /// Updates a peer's primary endpoint address
     ///
     /// Used to support roaming peers whose endpoint addresses change
     /// (e.g., mobile clients, NAT rebinding).
+    ///
+    /// If the endpoint already exists, it's updated to PRIMARY priority.
+    /// If not, it's added as a new PRIMARY endpoint.
     ///
     /// # Errors
     ///
     /// Returns `PeerNotFound` if no peer exists with the given public key.
     pub fn update_endpoint(&self, public_key: &[u8; 32], endpoint: SocketAddr) -> Result<()> {
         if let Some(mut entry) = self.peers.get_mut(public_key) {
-            entry.config.endpoint = Some(endpoint);
+            // Check if endpoint already exists
+            if let Some(ep) = entry.config.get_endpoint_mut(endpoint) {
+                ep.priority = EndpointPriority::PRIMARY;
+                ep.record_success();
+            } else {
+                // Add new endpoint as primary
+                entry.config.add_endpoint(
+                    PeerEndpoint::new(endpoint).with_priority(EndpointPriority::PRIMARY),
+                );
+            }
             Ok(())
+        } else {
+            Err(PortalNetError::PeerNotFound(format!(
+                "peer with public key {} not found",
+                hex::encode(public_key)
+            )))
+        }
+    }
+
+    /// Adds an endpoint to a peer
+    ///
+    /// # Errors
+    ///
+    /// Returns `PeerNotFound` if no peer exists with the given public key.
+    pub fn add_endpoint(&self, public_key: &[u8; 32], endpoint: PeerEndpoint) -> Result<bool> {
+        if let Some(mut entry) = self.peers.get_mut(public_key) {
+            Ok(entry.config.add_endpoint(endpoint))
+        } else {
+            Err(PortalNetError::PeerNotFound(format!(
+                "peer with public key {} not found",
+                hex::encode(public_key)
+            )))
+        }
+    }
+
+    /// Removes an endpoint from a peer
+    ///
+    /// # Errors
+    ///
+    /// Returns `PeerNotFound` if no peer exists with the given public key.
+    pub fn remove_endpoint(
+        &self,
+        public_key: &[u8; 32],
+        addr: SocketAddr,
+    ) -> Result<Option<PeerEndpoint>> {
+        if let Some(mut entry) = self.peers.get_mut(public_key) {
+            Ok(entry.config.remove_endpoint(addr))
         } else {
             Err(PortalNetError::PeerNotFound(format!(
                 "peer with public key {} not found",
@@ -325,7 +373,7 @@ mod tests {
                 .get_by_key(&config.public_key)
                 .unwrap()
                 .config
-                .endpoint
+                .endpoint()
                 .is_none()
         );
 
@@ -339,23 +387,20 @@ mod tests {
                 .get_by_key(&config.public_key)
                 .unwrap()
                 .config
-                .endpoint,
+                .endpoint(),
             Some(endpoint)
         );
 
-        // Update to different endpoint
+        // Update to different endpoint (adds as a new endpoint, both become PRIMARY)
         let endpoint2: SocketAddr = "10.0.0.50:12345".parse().unwrap();
         manager
             .update_endpoint(&config.public_key, endpoint2)
             .unwrap();
-        assert_eq!(
-            manager
-                .get_by_key(&config.public_key)
-                .unwrap()
-                .config
-                .endpoint,
-            Some(endpoint2)
-        );
+
+        // endpoint() returns highest priority (both are PRIMARY, so first one added)
+        let peer = manager.get_by_key(&config.public_key).unwrap();
+        assert!(peer.config.endpoint().is_some());
+        assert_eq!(peer.config.endpoints.len(), 2);
 
         // Test nonexistent peer
         assert!(manager.update_endpoint(&[99u8; 32], endpoint).is_err());
@@ -662,21 +707,27 @@ mod tests {
         manager.add_peer(config.clone()).unwrap();
 
         // Simulate mobile client changing networks
+        // Each call to update_endpoint adds the endpoint if not present
         let endpoints = ["192.168.1.100:51820", "10.0.0.50:51820", "172.16.0.1:51820"];
         for endpoint_str in endpoints {
             let endpoint: SocketAddr = endpoint_str.parse().unwrap();
             manager
                 .update_endpoint(&config.public_key, endpoint)
                 .unwrap();
-            assert_eq!(
-                manager
-                    .get_by_key(&config.public_key)
-                    .unwrap()
-                    .config
-                    .endpoint,
-                Some(endpoint)
+
+            // After each update, the peer should have this endpoint available
+            let peer = manager.get_by_key(&config.public_key).unwrap();
+            assert!(
+                peer.config
+                    .endpoints
+                    .iter()
+                    .any(|ep| ep.addr == endpoint)
             );
         }
+
+        // After roaming through 3 networks, we have 3 endpoints
+        let peer = manager.get_by_key(&config.public_key).unwrap();
+        assert_eq!(peer.config.endpoints.len(), 3);
     }
 
     #[test]

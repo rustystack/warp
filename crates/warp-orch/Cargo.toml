@@ -12,6 +12,7 @@ warp-sched.workspace = true
 warp-edge.workspace = true
 warp-hash.workspace = true
 warp-net.workspace = true
+portal-net.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["time", "sync", "rt"] }
