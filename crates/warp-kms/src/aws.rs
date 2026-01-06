@@ -109,6 +109,7 @@ impl crate::KmsProvider for AwsKms {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::KmsProvider;
 
     #[tokio::test]
     async fn test_aws_kms_not_implemented() {

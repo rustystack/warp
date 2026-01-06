@@ -343,8 +343,8 @@ mod tests {
         if let Ok(compressor) = GpuLz4Compressor::new() {
             let data = b"hello world hello world hello world";
 
-            let compressed = compressor.compress(data).unwrap();
-            let decompressed = compressor.decompress(&compressed).unwrap();
+            let compressed = Compressor::compress(&compressor, data).unwrap();
+            let decompressed = Compressor::decompress(&compressor, &compressed).unwrap();
 
             assert_eq!(data.as_slice(), decompressed.as_slice());
         }
@@ -356,8 +356,8 @@ mod tests {
             // Create 1MB of repetitive data
             let data = vec![0x42u8; 1024 * 1024];
 
-            let compressed = compressor.compress(&data).unwrap();
-            let decompressed = compressor.decompress(&compressed).unwrap();
+            let compressed = Compressor::compress(&compressor, &data).unwrap();
+            let decompressed = Compressor::decompress(&compressor, &compressed).unwrap();
 
             assert_eq!(data, decompressed);
             assert!(compressed.len() < data.len());
@@ -369,8 +369,8 @@ mod tests {
         if let Ok(compressor) = GpuLz4Compressor::new() {
             let data = b"";
 
-            let compressed = compressor.compress(data).unwrap();
-            let decompressed = compressor.decompress(&compressed).unwrap();
+            let compressed = Compressor::compress(&compressor, data).unwrap();
+            let decompressed = Compressor::decompress(&compressor, &compressed).unwrap();
 
             assert_eq!(data.as_slice(), decompressed.as_slice());
         }
@@ -383,12 +383,12 @@ mod tests {
 
             // Small data should use CPU
             let small_data = vec![0x42u8; 1024];
-            let compressed = compressor.compress(&small_data).unwrap();
+            let compressed = Compressor::compress(&compressor, &small_data).unwrap();
             assert!(compressed.len() > 0);
 
             // Large data should attempt GPU
             let large_data = vec![0x42u8; 2 * 1024 * 1024];
-            let compressed = compressor.compress(&large_data).unwrap();
+            let compressed = Compressor::compress(&compressor, &large_data).unwrap();
             assert!(compressed.len() > 0);
         }
     }

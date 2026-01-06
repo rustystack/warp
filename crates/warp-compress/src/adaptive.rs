@@ -163,7 +163,7 @@ mod tests {
 
 #[cfg(test)]
 mod proptest_tests {
-    use super::*;
+    use super::{calculate_entropy, Strategy as CompressionStrategy};
     use proptest::prelude::*;
 
     proptest! {
@@ -185,16 +185,16 @@ mod proptest_tests {
             high_entropy in 0.71f64..0.95,
             very_high_entropy in 0.96f64..=1.0,
         ) {
-            let s_low = Strategy::from_entropy(low_entropy);
-            let s_mid = Strategy::from_entropy(mid_entropy);
-            let s_high = Strategy::from_entropy(high_entropy);
-            let s_very_high = Strategy::from_entropy(very_high_entropy);
+            let s_low = CompressionStrategy::from_entropy(low_entropy);
+            let s_mid = CompressionStrategy::from_entropy(mid_entropy);
+            let s_high = CompressionStrategy::from_entropy(high_entropy);
+            let s_very_high = CompressionStrategy::from_entropy(very_high_entropy);
 
             // Verify ordering: lower entropy -> more aggressive compression
-            prop_assert_eq!(s_low, Strategy::Maximum);
-            prop_assert_eq!(s_mid, Strategy::Balanced);
-            prop_assert_eq!(s_high, Strategy::Fast);
-            prop_assert_eq!(s_very_high, Strategy::None);
+            prop_assert_eq!(s_low, CompressionStrategy::Maximum);
+            prop_assert_eq!(s_mid, CompressionStrategy::Balanced);
+            prop_assert_eq!(s_high, CompressionStrategy::Fast);
+            prop_assert_eq!(s_very_high, CompressionStrategy::None);
         }
     }
 

@@ -352,8 +352,8 @@ mod tests {
         if let Ok(compressor) = GpuZstdCompressor::new() {
             let data = b"hello world hello world hello world";
 
-            let compressed = compressor.compress(data).unwrap();
-            let decompressed = compressor.decompress(&compressed).unwrap();
+            let compressed = Compressor::compress(&compressor, data).unwrap();
+            let decompressed = Compressor::decompress(&compressor, &compressed).unwrap();
 
             assert_eq!(data.as_slice(), decompressed.as_slice());
         }
@@ -365,8 +365,8 @@ mod tests {
             // Create 1MB of repetitive data
             let data = vec![0x42u8; 1024 * 1024];
 
-            let compressed = compressor.compress(&data).unwrap();
-            let decompressed = compressor.decompress(&compressed).unwrap();
+            let compressed = Compressor::compress(&compressor, &data).unwrap();
+            let decompressed = Compressor::decompress(&compressor, &compressed).unwrap();
 
             assert_eq!(data, decompressed);
             assert!(compressed.len() < data.len());
@@ -430,8 +430,8 @@ mod tests {
         if let Ok(compressor) = GpuZstdCompressor::new() {
             let data = b"";
 
-            let compressed = compressor.compress(data).unwrap();
-            let decompressed = compressor.decompress(&compressed).unwrap();
+            let compressed = Compressor::compress(&compressor, data).unwrap();
+            let decompressed = Compressor::decompress(&compressor, &compressed).unwrap();
 
             assert_eq!(data.as_slice(), decompressed.as_slice());
         }

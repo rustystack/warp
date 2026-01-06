@@ -229,17 +229,20 @@ mod proptest_tests {
     }
 
     fn arb_header() -> impl Strategy<Value = Header> {
-        (
+        // Split into two tuples to stay under proptest's 12-element tuple limit
+        let part1 = (
             any::<u64>(), // flags
             any::<u32>(), // chunk_size_hint
             arb_compression(),
             arb_encryption(),
-            any::<u64>(),                        // metadata_offset
-            any::<u64>(),                        // metadata_size
-            any::<u64>(),                        // index_offset
-            any::<u64>(),                        // index_size
-            any::<u64>(),                        // file_table_offset
-            any::<u64>(),                        // file_table_size
+            any::<u64>(), // metadata_offset
+            any::<u64>(), // metadata_size
+            any::<u64>(), // index_offset
+            any::<u64>(), // index_size
+            any::<u64>(), // file_table_offset
+            any::<u64>(), // file_table_size
+        );
+        let part2 = (
             any::<u64>(),                        // data_offset
             prop::array::uniform32(any::<u8>()), // merkle_root
             any::<u64>(),                        // total_chunks
@@ -247,9 +250,35 @@ mod proptest_tests {
             any::<u64>(),                        // original_size
             any::<u64>(),                        // compressed_size
             prop::array::uniform16(any::<u8>()), // salt
-        )
-            .prop_map(
-                |(
+        );
+
+        (part1, part2).prop_map(
+            |(
+                (
+                    flags,
+                    chunk_size_hint,
+                    compression,
+                    encryption,
+                    metadata_offset,
+                    metadata_size,
+                    index_offset,
+                    index_size,
+                    file_table_offset,
+                    file_table_size,
+                ),
+                (
+                    data_offset,
+                    merkle_root,
+                    total_chunks,
+                    total_files,
+                    original_size,
+                    compressed_size,
+                    salt,
+                ),
+            )| {
+                Header {
+                    magic: MAGIC,
+                    version: VERSION,
                     flags,
                     chunk_size_hint,
                     compression,
@@ -267,30 +296,9 @@ mod proptest_tests {
                     original_size,
                     compressed_size,
                     salt,
-                )| {
-                    Header {
-                        magic: MAGIC,
-                        version: VERSION,
-                        flags,
-                        chunk_size_hint,
-                        compression,
-                        encryption,
-                        metadata_offset,
-                        metadata_size,
-                        index_offset,
-                        index_size,
-                        file_table_offset,
-                        file_table_size,
-                        data_offset,
-                        merkle_root,
-                        total_chunks,
-                        total_files,
-                        original_size,
-                        compressed_size,
-                        salt,
-                    }
-                },
-            )
+                }
+            },
+        )
     }
 
     proptest! {

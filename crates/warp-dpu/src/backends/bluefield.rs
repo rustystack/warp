@@ -234,7 +234,8 @@ mod tests {
     #[test]
     fn test_bluefield_not_available() {
         // Without the environment variable, BlueField should not be available
-        std::env::remove_var("WARP_BLUEFIELD_ENABLED");
+        // SAFETY: This is a single-threaded test; no other threads are reading this env var
+        unsafe { std::env::remove_var("WARP_BLUEFIELD_ENABLED") };
         assert!(!BlueFieldBackend::is_available());
         assert!(BlueFieldBackend::new().is_err());
     }
