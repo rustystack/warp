@@ -158,6 +158,10 @@ pub enum Error {
     /// Invalid argument
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
+
+    /// Transport error
+    #[error("transport error: {0}")]
+    Transport(String),
 }
 
 impl From<rmp_serde::encode::Error> for Error {

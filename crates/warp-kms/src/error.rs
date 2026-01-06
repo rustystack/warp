@@ -65,6 +65,10 @@ pub enum KmsError {
     /// Internal error
     #[error("Internal KMS error: {0}")]
     InternalError(String),
+
+    /// Operation not supported
+    #[error("Operation not supported: {0}")]
+    NotSupported(String),
 }
 
 /// Result type for KMS operations
