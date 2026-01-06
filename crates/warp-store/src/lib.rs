@@ -67,7 +67,9 @@ pub use arbiter::{
     RecoveryState, SplitBrainDetector, Vote, VoteResult, VoteTracker, WitnessConfig,
     WitnessHeartbeat, WitnessNode, WitnessState,
 };
-pub use autotier::{AutoTierConfig, AutoTierEngine, AutoTierStats, TierDecision, TierReason};
+pub use autotier::{
+    AutoTierConfig, AutoTierEngine, AutoTierExecutor, AutoTierStats, TierDecision, TierReason,
+};
 pub use backend::{HpcStorageBackend, StorageBackend};
 pub use bucket::{Bucket, BucketConfig, BucketPolicy};
 pub use collective::{CollectiveAdapter, CollectiveContext, Rank, StorageCollectiveOps};
@@ -75,7 +77,9 @@ pub use collective::{CollectiveAdapter, CollectiveContext, Rank, StorageCollecti
 pub use consistency::{NodeId, ObjectMetadataEntry, RaftMetrics, RaftStore, RaftStoreConfig};
 pub use ephemeral::{AccessScope, EphemeralToken, Permissions, RateLimit};
 pub use error::{Error, Result};
-pub use events::{EventConfig, EventEmitter, EventType, NotificationConfiguration, S3Event};
+pub use events::{
+    EventConfig, EventEmitter, EventType, NotificationConfiguration, S3Event, WebhookConfiguration,
+};
 pub use healer::{
     HealerConfig, HealerDaemon, HealerMetrics, HealerStats, RepairJob, RepairPriority, RepairQueue,
     RepairResult, RepairWorker,

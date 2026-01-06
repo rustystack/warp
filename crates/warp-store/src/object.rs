@@ -94,6 +94,10 @@ pub struct ObjectMeta {
 
     /// Whether this is a delete marker
     pub is_delete_marker: bool,
+
+    /// Storage class for the object
+    #[serde(default)]
+    pub storage_class: StorageClass,
 }
 
 impl ObjectMeta {
@@ -113,7 +117,15 @@ impl ObjectMeta {
             version_id: None,
             user_metadata: HashMap::new(),
             is_delete_marker: false,
+            storage_class: StorageClass::Standard,
         }
+    }
+
+    /// Create new metadata for an object with a specific storage class
+    pub fn with_storage_class(data: &ObjectData, storage_class: StorageClass) -> Self {
+        let mut meta = Self::new(data);
+        meta.storage_class = storage_class;
+        meta
     }
 
     /// Create a delete marker
@@ -129,7 +141,14 @@ impl ObjectMeta {
             version_id: Some(version_id),
             user_metadata: HashMap::new(),
             is_delete_marker: true,
+            storage_class: StorageClass::Standard,
         }
+    }
+
+    /// Set storage class
+    pub fn set_storage_class(mut self, storage_class: StorageClass) -> Self {
+        self.storage_class = storage_class;
+        self
     }
 
     /// Set content type

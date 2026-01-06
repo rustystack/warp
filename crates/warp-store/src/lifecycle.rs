@@ -570,20 +570,45 @@ impl<B: StorageBackend> LifecycleExecutor<B> {
             return Ok(());
         }
 
-        // TODO: Implement actual storage class transition
-        // This requires:
-        // 1. Reading object data
-        // 2. Writing to new storage tier
-        // 3. Updating metadata
-        // 4. Deleting from old tier
-        debug!(
+        // Skip if already at target storage class
+        if object.storage_class == target_class {
+            debug!(
+                bucket = %bucket_name,
+                key = %object.key,
+                storage_class = ?target_class,
+                "Object already at target storage class"
+            );
+            return Ok(());
+        }
+
+        let key = ObjectKey::new(bucket_name, &object.key)?;
+
+        // 1. Read object data
+        let data = self.store.get(&key).await?;
+
+        // 2. Get existing metadata to preserve user metadata
+        let existing_meta = self.store.head(&key).await?;
+
+        // 3. Write to new storage tier with updated storage class
+        let opts = crate::object::PutOptions {
+            content_type: existing_meta.content_type.clone(),
+            metadata: existing_meta.user_metadata.clone(),
+            if_match: None,
+            if_none_match: false,
+            storage_class: target_class,
+        };
+
+        self.store.put_with_options(&key, data, opts).await?;
+
+        stats.transitioned += 1;
+
+        info!(
             bucket = %bucket_name,
             key = %object.key,
             from = ?object.storage_class,
             to = ?target_class,
-            "Would transition object (storage class change not yet implemented)"
+            "Transitioned object storage class"
         );
-        stats.transitioned += 1;
 
         Ok(())
     }

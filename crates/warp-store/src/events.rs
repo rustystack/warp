@@ -462,6 +462,10 @@ pub struct NotificationConfiguration {
     /// HPC-Channels configurations (WARP-specific)
     #[serde(default)]
     pub hpc_channel_configurations: Vec<HpcChannelConfiguration>,
+
+    /// Webhook configurations (HTTP POST)
+    #[serde(default)]
+    pub webhook_configurations: Vec<WebhookConfiguration>,
 }
 
 impl NotificationConfiguration {
@@ -484,6 +488,10 @@ impl NotificationConfiguration {
                 .any(|c| c.matches(event_type_str, key))
             || self
                 .hpc_channel_configurations
+                .iter()
+                .any(|c| c.matches(event_type_str, key))
+            || self
+                .webhook_configurations
                 .iter()
                 .any(|c| c.matches(event_type_str, key))
     }
@@ -518,6 +526,12 @@ impl NotificationConfiguration {
             }
         }
 
+        for config in &self.webhook_configurations {
+            if config.matches(event_type_str, key) {
+                destinations.push(EventDestination::Webhook(config.clone()));
+            }
+        }
+
         destinations
     }
 }
@@ -533,6 +547,8 @@ pub enum EventDestination {
     Lambda(String),
     /// HPC-Channels channel ID
     HpcChannel(String),
+    /// Webhook (HTTP POST)
+    Webhook(WebhookConfiguration),
 }
 
 /// Common configuration trait for notification targets
@@ -710,6 +726,71 @@ impl NotificationTarget for HpcChannelConfiguration {
     }
 }
 
+/// Webhook configuration for HTTP POST notifications
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookConfiguration {
+    /// Configuration ID
+    pub id: String,
+
+    /// Webhook URL to POST events to
+    pub url: String,
+
+    /// Event types to notify
+    pub events: Vec<String>,
+
+    /// Filter rules
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<FilterRules>,
+
+    /// HTTP headers to include (e.g., Authorization)
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+
+    /// Secret for HMAC signature (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+
+    /// Timeout in seconds
+    #[serde(default = "default_webhook_timeout")]
+    pub timeout_secs: u64,
+
+    /// Number of retries on failure
+    #[serde(default = "default_webhook_retries")]
+    pub max_retries: u32,
+}
+
+fn default_webhook_timeout() -> u64 {
+    30
+}
+
+fn default_webhook_retries() -> u32 {
+    3
+}
+
+impl NotificationTarget for WebhookConfiguration {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn events(&self) -> &[String] {
+        &self.events
+    }
+    fn filter(&self) -> Option<&FilterRules> {
+        self.filter.as_ref()
+    }
+}
+
+/// Compute HMAC signature for webhook payload
+#[cfg(feature = "webhooks")]
+fn compute_webhook_signature(secret: &str, payload: &str) -> String {
+    use blake3::Hasher;
+
+    // Use BLAKE3 keyed hash as HMAC
+    let mut hasher = Hasher::new_keyed(secret.as_bytes().try_into().unwrap_or(&[0u8; 32]));
+    hasher.update(payload.as_bytes());
+    let hash = hasher.finalize();
+    format!("blake3={}", hex::encode(hash.as_bytes()))
+}
+
 /// Filter rules for key-based filtering
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterRules {
@@ -812,6 +893,10 @@ pub struct EventEmitter {
     /// HPC-Channels broadcast sender (when feature is enabled)
     #[cfg(feature = "hpc-channels")]
     hpc_sender: tokio::sync::broadcast::Sender<StorageEventMessage>,
+
+    /// HTTP client for webhooks (when feature is enabled)
+    #[cfg(feature = "webhooks")]
+    http_client: reqwest::Client,
 }
 
 impl EventEmitter {
@@ -829,12 +914,20 @@ impl EventEmitter {
             tx
         };
 
+        #[cfg(feature = "webhooks")]
+        let http_client = reqwest::Client::builder()
+            .user_agent("warp-store/0.1")
+            .build()
+            .expect("Failed to create HTTP client");
+
         Self {
             config,
             sender,
             notifications: Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "hpc-channels")]
             hpc_sender,
+            #[cfg(feature = "webhooks")]
+            http_client,
         }
     }
 
@@ -925,7 +1018,113 @@ impl EventEmitter {
                 debug!(channel = channel_id.as_str(), "Would send to HPC channel");
                 // TODO: Send to specific HPC-Channels channel
             }
+            EventDestination::Webhook(config) => {
+                self.send_to_webhook(event.clone(), config);
+            }
         }
+    }
+
+    /// Send event to a webhook endpoint
+    #[cfg(feature = "webhooks")]
+    fn send_to_webhook(&self, event: S3Event, config: WebhookConfiguration) {
+        let client = self.http_client.clone();
+
+        // Spawn async task for webhook delivery
+        tokio::spawn(async move {
+            let url = &config.url;
+            let timeout = std::time::Duration::from_secs(config.timeout_secs);
+            let max_retries = config.max_retries;
+
+            // Build request
+            let mut request = client
+                .post(url)
+                .timeout(timeout)
+                .header("Content-Type", "application/json");
+
+            // Add custom headers
+            for (key, value) in &config.headers {
+                request = request.header(key, value);
+            }
+
+            // Add HMAC signature if secret is configured
+            if let Some(secret) = &config.secret {
+                if let Ok(body_json) = serde_json::to_string(&event) {
+                    let signature = compute_webhook_signature(secret, &body_json);
+                    request = request.header("X-Warp-Signature", signature);
+                }
+            }
+
+            // Serialize event to JSON
+            let body = match serde_json::to_string(&event) {
+                Ok(json) => json,
+                Err(e) => {
+                    warn!(
+                        url = url.as_str(),
+                        error = %e,
+                        "Failed to serialize event for webhook"
+                    );
+                    return;
+                }
+            };
+
+            // Retry loop
+            for attempt in 1..=max_retries {
+                debug!(
+                    url = url.as_str(),
+                    attempt = attempt,
+                    "Sending webhook"
+                );
+
+                match request.try_clone().unwrap().body(body.clone()).send().await {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            info!(
+                                url = url.as_str(),
+                                status = %response.status(),
+                                "Webhook delivered successfully"
+                            );
+                            return;
+                        } else {
+                            warn!(
+                                url = url.as_str(),
+                                status = %response.status(),
+                                attempt = attempt,
+                                "Webhook returned non-success status"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            url = url.as_str(),
+                            error = %e,
+                            attempt = attempt,
+                            "Webhook delivery failed"
+                        );
+                    }
+                }
+
+                // Exponential backoff before retry
+                if attempt < max_retries {
+                    let backoff = std::time::Duration::from_millis(100 * 2u64.pow(attempt - 1));
+                    tokio::time::sleep(backoff).await;
+                }
+            }
+
+            warn!(
+                url = url.as_str(),
+                max_retries = max_retries,
+                "Webhook delivery failed after all retries"
+            );
+        });
+    }
+
+    /// Stub for webhook sending when feature is disabled
+    #[cfg(not(feature = "webhooks"))]
+    fn send_to_webhook(&self, _event: S3Event, config: WebhookConfiguration) {
+        debug!(
+            url = config.url.as_str(),
+            "Webhooks feature not enabled"
+        );
     }
 
     /// Send event to HPC-Channels global broadcast

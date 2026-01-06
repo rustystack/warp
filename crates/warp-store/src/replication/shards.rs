@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::{DomainId, ErasurePolicy, ReplicationPolicy};
 use crate::error::{Error, Result};
@@ -445,29 +445,172 @@ impl DistributedShardManager {
     }
 
     /// Read a shard from a location
+    ///
+    /// For local domain, reads directly from the filesystem.
+    /// For remote domains, this would need a network transport layer.
     pub async fn read_shard(
         &self,
-        _shard_key: &ShardKey,
-        _location: &ShardLocation,
+        shard_key: &ShardKey,
+        location: &ShardLocation,
     ) -> Result<Vec<u8>> {
-        // In a real implementation, this would read from the actual storage node
-        // For now, return an error indicating this needs implementation
-        Err(Error::Replication(
-            "read_shard not yet implemented".to_string(),
-        ))
+        // Check shard health - only read from healthy or degraded shards
+        match location.health {
+            ShardHealth::Lost => {
+                return Err(Error::Replication(format!(
+                    "Cannot read shard {}:{} - marked as lost",
+                    shard_key.bucket, shard_key.shard_index
+                )));
+            }
+            ShardHealth::Repairing => {
+                return Err(Error::Replication(format!(
+                    "Cannot read shard {}:{} - currently being repaired",
+                    shard_key.bucket, shard_key.shard_index
+                )));
+            }
+            _ => {}
+        }
+
+        // Check if this is a local shard
+        if location.domain_id == self.local_domain_id {
+            // Local read - read directly from the path
+            let shard_path = std::path::Path::new(&location.path);
+
+            match tokio::fs::read(shard_path).await {
+                Ok(data) => {
+                    debug!(
+                        bucket = %shard_key.bucket,
+                        key = %shard_key.key,
+                        shard = shard_key.shard_index,
+                        size = data.len(),
+                        "Read local shard"
+                    );
+                    Ok(data)
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    Err(Error::Replication(format!(
+                        "Shard not found at path: {}",
+                        location.path
+                    )))
+                }
+                Err(e) => Err(Error::Io(e)),
+            }
+        } else {
+            // Remote domain - would need network transport
+            // For now, return an error indicating remote reads need transport layer
+            Err(Error::Replication(format!(
+                "Remote shard read not yet implemented (domain {})",
+                location.domain_id
+            )))
+        }
     }
 
     /// Reconstruct a shard using erasure coding
+    ///
+    /// Uses Reed-Solomon erasure coding to reconstruct a missing shard from
+    /// available shards. Requires at least `data_shards` worth of shard data.
+    ///
+    /// # Arguments
+    /// * `shard_key` - The key identifying the shard to reconstruct
+    /// * `distribution` - Information about the shard distribution
+    /// * `shard_data` - Available shards as (index, data) pairs
+    ///
+    /// # Returns
+    /// The reconstructed shard data, or an error if reconstruction fails
+    #[cfg(feature = "erasure")]
+    pub async fn reconstruct_shard(
+        &self,
+        shard_key: &ShardKey,
+        distribution: &ShardDistributionInfo,
+        shard_data: &[(ShardIndex, Vec<u8>)],
+    ) -> Result<Vec<u8>> {
+        use warp_ec::{ErasureConfig, ErasureDecoder, ErasureEncoder};
+
+        // Validate we have enough shards
+        if shard_data.len() < distribution.data_shards {
+            return Err(Error::Replication(format!(
+                "Insufficient shards for reconstruction: need {}, have {}",
+                distribution.data_shards,
+                shard_data.len()
+            )));
+        }
+
+        // Determine shard size from available data
+        let shard_size = shard_data
+            .first()
+            .map(|(_, d)| d.len())
+            .ok_or_else(|| Error::Replication("No shard data provided".to_string()))?;
+
+        // Validate all shards have same size
+        for (idx, data) in shard_data {
+            if data.len() != shard_size {
+                return Err(Error::Replication(format!(
+                    "Shard {} has size {}, expected {}",
+                    idx,
+                    data.len(),
+                    shard_size
+                )));
+            }
+        }
+
+        // Build the shard array for decoder (None for missing shards)
+        let total_shards = distribution.total_shards;
+        let mut shards: Vec<Option<Vec<u8>>> = vec![None; total_shards];
+
+        for (idx, data) in shard_data {
+            let idx = *idx as usize;
+            if idx < total_shards {
+                shards[idx] = Some(data.clone());
+            }
+        }
+
+        // Create erasure config and decoder
+        let config = ErasureConfig::new(distribution.data_shards, distribution.parity_shards)
+            .map_err(|e| Error::ErasureCoding(format!("Invalid erasure config: {}", e)))?;
+
+        let decoder = ErasureDecoder::new(config.clone());
+
+        // Decode to reconstruct original data
+        let original_data = decoder
+            .decode(&shards)
+            .map_err(|e| Error::ErasureCoding(format!("Decode failed: {}", e)))?;
+
+        // Re-encode to get all shards including the missing one
+        let encoder = ErasureEncoder::new(config);
+        let all_shards = encoder
+            .encode(&original_data)
+            .map_err(|e| Error::ErasureCoding(format!("Re-encode failed: {}", e)))?;
+
+        // Extract the requested shard
+        let target_idx = shard_key.shard_index as usize;
+        if target_idx >= all_shards.len() {
+            return Err(Error::Replication(format!(
+                "Shard index {} out of range (total: {})",
+                target_idx,
+                all_shards.len()
+            )));
+        }
+
+        info!(
+            bucket = %shard_key.bucket,
+            key = %shard_key.key,
+            shard = shard_key.shard_index,
+            available_shards = shard_data.len(),
+            "Reconstructed shard using erasure coding"
+        );
+
+        Ok(all_shards[target_idx].clone())
+    }
+
+    /// Reconstruct a shard using erasure coding (stub when feature disabled)
+    #[cfg(not(feature = "erasure"))]
     pub async fn reconstruct_shard(
         &self,
         _shard_key: &ShardKey,
         _distribution: &ShardDistributionInfo,
         _shard_data: &[(ShardIndex, Vec<u8>)],
     ) -> Result<Vec<u8>> {
-        // In a real implementation, this would use warp-ec to reconstruct
-        // For now, return an error indicating this needs implementation
         Err(Error::Replication(
-            "reconstruct_shard not yet implemented".to_string(),
+            "Shard reconstruction requires 'erasure' feature".to_string(),
         ))
     }
 

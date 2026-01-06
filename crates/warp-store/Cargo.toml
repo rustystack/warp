@@ -32,7 +32,9 @@ nvmeof = []
 nvmeof-rdma = ["nvmeof", "rmpi"]
 nvmeof-quic = ["nvmeof", "dep:quinn"]
 nvmeof-full = ["nvmeof", "nvmeof-rdma", "nvmeof-quic"]
-full = ["local", "portal", "parcode", "erasure", "gpu", "raft", "crdt", "wireguard", "rmpi", "hpc-channels", "chonkers", "blind-dedup", "nvmeof"]
+# Webhook support for event notifications
+webhooks = ["dep:reqwest"]
+full = ["local", "portal", "parcode", "erasure", "gpu", "raft", "crdt", "wireguard", "rmpi", "hpc-channels", "chonkers", "blind-dedup", "nvmeof", "webhooks"]
 
 [dependencies]
 # Core warp crates
@@ -94,6 +96,9 @@ base64 = "0.22"
 serde_bytes = "0.11"
 hex = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
+
+# Optional: HTTP client for webhooks
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

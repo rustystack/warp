@@ -156,8 +156,8 @@ impl StorageBackend for LocalBackend {
         self.ensure_parent(&data_path).await?;
         self.ensure_parent(&meta_path).await?;
 
-        // Create metadata
-        let mut meta = ObjectMeta::new(&data);
+        // Create metadata with storage class
+        let mut meta = ObjectMeta::with_storage_class(&data, opts.storage_class);
         if let Some(ct) = opts.content_type {
             meta = meta.with_content_type(ct);
         }
@@ -266,18 +266,33 @@ impl StorageBackend for LocalBackend {
                     stack.push(path);
                 } else {
                     // It's a file
-                    let metadata = entry.metadata().await?;
-                    let modified = metadata
+                    let file_metadata = entry.metadata().await?;
+                    let modified = file_metadata
                         .modified()
                         .map(|t| chrono::DateTime::<Utc>::from(t))
                         .unwrap_or_else(|_| Utc::now());
 
+                    // Try to read object metadata for storage class and etag
+                    let obj_key = ObjectKey::new(bucket, &key).unwrap_or_else(|_| {
+                        ObjectKey::new(bucket, "unknown").unwrap()
+                    });
+                    let meta_path = self.meta_path(&obj_key);
+                    let (etag, storage_class) = if let Ok(meta_bytes) = fs::read(&meta_path).await {
+                        if let Ok(meta) = rmp_serde::from_slice::<ObjectMeta>(&meta_bytes) {
+                            (meta.etag, meta.storage_class)
+                        } else {
+                            (String::new(), StorageClass::Standard)
+                        }
+                    } else {
+                        (String::new(), StorageClass::Standard)
+                    };
+
                     objects.push(ObjectEntry {
                         key,
-                        size: metadata.len(),
+                        size: file_metadata.len(),
                         last_modified: modified,
-                        etag: String::new(), // Would need to read metadata file
-                        storage_class: StorageClass::Standard,
+                        etag,
+                        storage_class,
                         version_id: None,
                         is_latest: true,
                     });

@@ -6919,6 +6919,7 @@ dependencies = [
  "proptest",
  "quinn",
  "rand 0.8.5",
+ "reqwest",
  "rmp-serde",
  "rmpi",
  "serde",

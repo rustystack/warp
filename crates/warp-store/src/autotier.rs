@@ -49,8 +49,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, instrument, warn};
 
-use crate::object::StorageClass;
+use crate::backend::StorageBackend;
+use crate::object::{ObjectData, PutOptions, StorageClass};
 use crate::slai::{AccessPattern, AccessTracker, PlacementEngine, WorkloadPredictor, WorkloadType};
+use crate::{ObjectKey, Store};
 
 /// Configuration for the auto-tiering engine
 #[derive(Debug, Clone)]
@@ -783,6 +785,261 @@ impl AutoTierEngine {
                 )
             }
         }
+    }
+}
+
+/// Auto-tiering executor that actually moves data between storage tiers
+///
+/// This combines the SLAI-driven decision engine with a Store to perform
+/// actual object transitions between storage classes.
+///
+/// ## Example
+///
+/// ```rust,no_run
+/// use warp_store::autotier::{AutoTierExecutor, AutoTierConfig};
+/// use warp_store::slai::PlacementEngine;
+/// use warp_store::{Store, StoreConfig};
+/// use std::sync::Arc;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), warp_store::Error> {
+///     let store = Store::new(StoreConfig::default()).await?;
+///     let placement = Arc::new(PlacementEngine::new());
+///     let config = AutoTierConfig::default();
+///
+///     let executor = AutoTierExecutor::new(store, placement, config);
+///     let stats = executor.run_once().await?;
+///     println!("Promoted {}, demoted {}", stats.promotions, stats.demotions);
+///     Ok(())
+/// }
+/// ```
+pub struct AutoTierExecutor<B: StorageBackend> {
+    /// The storage store
+    store: Arc<Store<B>>,
+    /// The SLAI-driven decision engine
+    engine: AutoTierEngine,
+}
+
+impl<B: StorageBackend> AutoTierExecutor<B> {
+    /// Create a new auto-tier executor
+    pub fn new(store: Store<B>, placement: Arc<PlacementEngine>, config: AutoTierConfig) -> Self {
+        Self {
+            store: Arc::new(store),
+            engine: AutoTierEngine::new(placement, config),
+        }
+    }
+
+    /// Create a new executor from an Arc<Store>
+    pub fn from_arc(
+        store: Arc<Store<B>>,
+        placement: Arc<PlacementEngine>,
+        config: AutoTierConfig,
+    ) -> Self {
+        Self {
+            store,
+            engine: AutoTierEngine::new(placement, config),
+        }
+    }
+
+    /// Run a single auto-tiering evaluation and execute transitions
+    #[instrument(skip(self))]
+    pub async fn run_once(&self) -> crate::Result<AutoTierStats> {
+        let start = Instant::now();
+        let mut stats = AutoTierStats {
+            evaluated_at: Utc::now(),
+            ..Default::default()
+        };
+
+        info!("Starting auto-tiering evaluation with data movement");
+
+        // Get decisions from the engine
+        let decisions = self.engine.collect_decisions(&mut stats);
+
+        // Execute transitions with actual data movement
+        for decision in decisions {
+            if let Err(e) = self.execute_transition_with_data(&decision, &mut stats).await {
+                warn!(
+                    key = %decision.key,
+                    error = %e,
+                    "Failed to execute tier transition with data movement"
+                );
+                stats.errors += 1;
+            }
+        }
+
+        stats.duration_ms = start.elapsed().as_millis() as u64;
+
+        // Update engine stats
+        *self.engine.last_stats.write() = Some(stats.clone());
+        {
+            let mut total = self.engine.total_stats.write();
+            total.promotions += stats.promotions;
+            total.demotions += stats.demotions;
+            total.to_infrequent += stats.to_infrequent;
+            total.to_archive += stats.to_archive;
+            total.to_standard += stats.to_standard;
+            total.gpu_pinned += stats.gpu_pinned;
+            total.workload_skipped += stats.workload_skipped;
+            total.protected_skipped += stats.protected_skipped;
+            total.errors += stats.errors;
+            total.objects_scanned += stats.objects_scanned;
+        }
+
+        info!(
+            promotions = stats.promotions,
+            demotions = stats.demotions,
+            duration_ms = stats.duration_ms,
+            "Auto-tiering evaluation with data movement complete"
+        );
+
+        Ok(stats)
+    }
+
+    /// Execute a tier transition with actual data movement
+    async fn execute_transition_with_data(
+        &self,
+        decision: &TierDecision,
+        stats: &mut AutoTierStats,
+    ) -> crate::Result<()> {
+        // Acquire semaphore for rate limiting
+        let _permit = self
+            .engine
+            .transition_semaphore
+            .acquire()
+            .await
+            .map_err(|e| crate::Error::Backend(format!("semaphore error: {}", e)))?;
+
+        if self.engine.config.dry_run {
+            info!(
+                key = %decision.key,
+                from = ?decision.current_class,
+                to = ?decision.target_class,
+                reason = ?decision.reason,
+                "DRY RUN: Would transition object"
+            );
+        } else {
+            debug!(
+                key = %decision.key,
+                from = ?decision.current_class,
+                to = ?decision.target_class,
+                reason = ?decision.reason,
+                "Transitioning object with data movement"
+            );
+
+            // Parse the key into bucket and object key
+            // The decision.key format should be "bucket/object/path"
+            let parts: Vec<&str> = decision.key.splitn(2, '/').collect();
+            if parts.len() != 2 {
+                return Err(crate::Error::InvalidKey(format!(
+                    "Invalid key format: {}",
+                    decision.key
+                )));
+            }
+            let bucket = parts[0];
+            let object_key = parts[1];
+
+            let key = ObjectKey::new(bucket, object_key)?;
+
+            // 1. Read object data
+            let data = self.store.get(&key).await?;
+
+            // 2. Get existing metadata to preserve user metadata
+            let existing_meta = self.store.head(&key).await?;
+
+            // 3. Write to new storage tier with updated storage class
+            let opts = PutOptions {
+                content_type: existing_meta.content_type.clone(),
+                metadata: existing_meta.user_metadata.clone(),
+                if_match: None,
+                if_none_match: false,
+                storage_class: decision.target_class,
+            };
+
+            self.store.put_with_options(&key, data, opts).await?;
+
+            // Update engine's tier tracking
+            self.engine.set_tier(&decision.key, decision.target_class);
+
+            info!(
+                key = %decision.key,
+                from = ?decision.current_class,
+                to = ?decision.target_class,
+                "Object transitioned to new storage tier"
+            );
+        }
+
+        // Update stats
+        match decision.target_class {
+            StorageClass::Standard => {
+                stats.promotions += 1;
+                stats.to_standard += 1;
+            }
+            StorageClass::InfrequentAccess => {
+                stats.demotions += 1;
+                stats.to_infrequent += 1;
+            }
+            StorageClass::Archive => {
+                stats.demotions += 1;
+                stats.to_archive += 1;
+            }
+            StorageClass::GpuPinned => {
+                stats.promotions += 1;
+                stats.gpu_pinned += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Start the background auto-tiering daemon with data movement
+    pub fn start_background(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let executor = self;
+        let interval = executor.engine.config.evaluation_interval;
+
+        tokio::spawn(async move {
+            let mut interval_timer = tokio::time::interval(interval);
+            interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval_timer.tick().await;
+
+                match executor.run_once().await {
+                    Ok(stats) => {
+                        if stats.promotions > 0 || stats.demotions > 0 {
+                            info!(
+                                promotions = stats.promotions,
+                                demotions = stats.demotions,
+                                errors = stats.errors,
+                                "Background auto-tiering with data movement complete"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Background auto-tiering failed");
+                    }
+                }
+            }
+        })
+    }
+
+    /// Get a reference to the underlying engine
+    pub fn engine(&self) -> &AutoTierEngine {
+        &self.engine
+    }
+
+    /// Get the last evaluation statistics
+    pub fn last_stats(&self) -> Option<AutoTierStats> {
+        self.engine.last_stats()
+    }
+
+    /// Get cumulative statistics
+    pub fn total_stats(&self) -> AutoTierStats {
+        self.engine.total_stats()
+    }
+
+    /// Get the configuration
+    pub fn config(&self) -> &AutoTierConfig {
+        self.engine.config()
     }
 }
 
