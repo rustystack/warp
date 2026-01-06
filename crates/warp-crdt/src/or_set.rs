@@ -18,6 +18,7 @@
 
 use crate::{CrdtMerge, MergeStats, NodeId};
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -64,12 +65,20 @@ impl<T: Eq + Hash + Clone> ORSet<T> {
     ///
     /// Removes all currently visible dots for this element.
     /// Concurrent adds will have different dots and won't be affected.
-    pub fn remove(&mut self, element: &T) {
+    pub fn remove<Q>(&mut self, element: &Q)
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.elements.remove(element);
     }
 
     /// Check if the set contains an element
-    pub fn contains(&self, element: &T) -> bool {
+    pub fn contains<Q>(&self, element: &Q) -> bool
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.elements
             .get(element)
             .map(|dots| !dots.is_empty())

@@ -285,6 +285,7 @@ struct GpuBenchResults {
 #[cfg(feature = "gpu")]
 async fn bench_gpu_compression(data: &[u8]) -> Option<GpuBenchResults> {
     use warp_compress::{Compressor, GpuContext, GpuLz4Compressor, GpuZstdCompressor};
+    use warp_compress::gpu::PinnedMemoryPool;
 
     let ctx = match GpuContext::new() {
         Ok(ctx) => ctx,
@@ -294,9 +295,12 @@ async fn bench_gpu_compression(data: &[u8]) -> Option<GpuBenchResults> {
         }
     };
 
+    let context = std::sync::Arc::new(ctx);
+    let memory_pool = std::sync::Arc::new(PinnedMemoryPool::with_defaults(context.context().clone()));
+
     // Zstd
     let zstd_compressor =
-        match GpuZstdCompressor::with_context_and_level(std::sync::Arc::new(ctx.clone()), 3) {
+        match GpuZstdCompressor::with_context_and_level(context.clone(), memory_pool.clone(), 3) {
             Ok(c) => c,
             Err(_) => return None,
         };
@@ -313,7 +317,7 @@ async fn bench_gpu_compression(data: &[u8]) -> Option<GpuBenchResults> {
     let zstd_time = elapsed.as_secs_f64();
 
     // LZ4
-    let lz4_compressor = match GpuLz4Compressor::with_context(std::sync::Arc::new(ctx)) {
+    let lz4_compressor = match GpuLz4Compressor::with_context(context.clone()) {
         Ok(c) => c,
         Err(_) => return None,
     };

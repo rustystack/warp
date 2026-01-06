@@ -81,29 +81,37 @@ pub async fn gpu_hash<B: StorageBackend>(
 
     let start = Instant::now();
 
-    // Try GPU, fall back to CPU
-    let (hash, gpu_used) = match GpuContext::new() {
-        Ok(ctx) => {
-            let hasher = Blake3Hasher::new(std::sync::Arc::new(ctx));
-            if hasher.should_use_gpu(data.len()) {
-                match hasher.hash(data.as_ref()) {
-                    Ok(h) => (h, true),
+    // Try GPU, fall back to CPU (GPU is typically faster for data > 64KB)
+    let use_gpu = data.len() >= 64 * 1024;
+    let (hash, gpu_used) = if use_gpu {
+        match GpuContext::new() {
+            Ok(ctx) => {
+                match Blake3Hasher::new(ctx.context().clone()) {
+                    Ok(hasher) => match hasher.hash(data.as_ref()) {
+                        Ok(h) => (h, true),
+                        Err(_) => {
+                            // Fallback to CPU
+                            let h = blake3::hash(data.as_ref());
+                            (*h.as_bytes(), false)
+                        }
+                    },
                     Err(_) => {
-                        // Fallback to CPU
+                        // Hasher creation failed, use CPU
                         let h = blake3::hash(data.as_ref());
                         (*h.as_bytes(), false)
                     }
                 }
-            } else {
+            }
+            Err(_) => {
+                // No GPU available, use CPU
                 let h = blake3::hash(data.as_ref());
                 (*h.as_bytes(), false)
             }
         }
-        Err(_) => {
-            // No GPU available, use CPU
-            let h = blake3::hash(data.as_ref());
-            (*h.as_bytes(), false)
-        }
+    } else {
+        // Small data, use CPU directly
+        let h = blake3::hash(data.as_ref());
+        (*h.as_bytes(), false)
     };
 
     let elapsed = start.elapsed();
@@ -244,26 +252,30 @@ pub async fn gpu_encrypt<B: StorageBackend>(
 
     let start = Instant::now();
 
-    // Try GPU encryption
-    let (ciphertext, tag, gpu_used) = match GpuContext::new() {
-        Ok(ctx) => {
-            let cipher = ChaCha20Poly1305::new(std::sync::Arc::new(ctx));
-            if cipher.should_use_gpu(data.len()) {
-                match cipher.encrypt(data.as_ref(), &key, &nonce) {
-                    Ok(encrypted) => {
-                        // Last 16 bytes are the tag
-                        let tag_start = encrypted.len() - 16;
-                        let mut tag = [0u8; 16];
-                        tag.copy_from_slice(&encrypted[tag_start..]);
-                        (encrypted[..tag_start].to_vec(), tag, true)
-                    }
+    // Try GPU encryption (GPU is typically faster for data > 64KB)
+    let use_gpu = data.len() >= 64 * 1024;
+    let (ciphertext, tag, gpu_used): (Vec<u8>, [u8; 16], bool) = if use_gpu {
+        match GpuContext::new() {
+            Ok(ctx) => {
+                match ChaCha20Poly1305::new(ctx.context().clone()) {
+                    Ok(cipher) => match cipher.encrypt(data.as_ref(), &key, &nonce) {
+                        Ok(encrypted) => {
+                            // Last 16 bytes are the tag
+                            let tag_start = encrypted.len() - 16;
+                            let mut tag = [0u8; 16];
+                            tag.copy_from_slice(&encrypted[tag_start..]);
+                            (encrypted[..tag_start].to_vec(), tag, true)
+                        }
+                        Err(_) => cpu_encrypt(data.as_ref(), &key, &nonce)?,
+                    },
                     Err(_) => cpu_encrypt(data.as_ref(), &key, &nonce)?,
                 }
-            } else {
-                cpu_encrypt(data.as_ref(), &key, &nonce)?
             }
+            Err(_) => cpu_encrypt(data.as_ref(), &key, &nonce)?,
         }
-        Err(_) => cpu_encrypt(data.as_ref(), &key, &nonce)?,
+    } else {
+        // Small data, use CPU directly
+        cpu_encrypt(data.as_ref(), &key, &nonce)?
     };
 
     let elapsed = start.elapsed();
@@ -366,15 +378,17 @@ pub async fn gpu_capabilities<B: StorageBackend>(
     match GpuContext::new() {
         Ok(ctx) => {
             let caps = ctx.capabilities();
+            let device_name = ctx.device_name().ok();
+            let (major, minor) = caps.compute_capability;
             Json(GpuCapabilities {
                 available: true,
-                device_name: Some(caps.device_name.clone()),
-                compute_capability: Some(format!("{}.{}", caps.compute_major, caps.compute_minor)),
+                device_name,
+                compute_capability: Some(format!("{}.{}", major, minor)),
                 total_memory: Some(caps.total_memory as u64),
                 free_memory: ctx.free_memory().ok().map(|m| m as u64),
-                max_threads_per_block: Some(caps.max_threads_per_block),
-                multiprocessor_count: Some(caps.multiprocessor_count),
-                estimated_cuda_cores: Some(caps.estimated_cuda_cores),
+                max_threads_per_block: Some(caps.max_threads_per_block as u32),
+                multiprocessor_count: Some(caps.multiprocessor_count as u32),
+                estimated_cuda_cores: Some(caps.estimated_cuda_cores() as u32),
             })
         }
         Err(_) => Json(GpuCapabilities {

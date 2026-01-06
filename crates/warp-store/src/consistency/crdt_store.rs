@@ -285,9 +285,10 @@ impl CrdtStore {
 
     /// Get g-counter value
     pub fn g_counter_value(&self, key: &str) -> u64 {
-        self.g_counters.get(key)
-            .map(|counter| counter.value())
-            .unwrap_or(0)
+        match self.g_counters.get(key) {
+            Some(counter) => GCounter::value(&counter),
+            None => 0,
+        }
     }
 
     /// Increment a PN-counter (positive)
@@ -322,9 +323,10 @@ impl CrdtStore {
 
     /// Get PN-counter value (may be negative)
     pub fn pn_counter_value(&self, key: &str) -> i64 {
-        self.pn_counters.get(key)
-            .map(|counter| counter.value())
-            .unwrap_or(0)
+        match self.pn_counters.get(key) {
+            Some(counter) => PNCounter::value(&counter),
+            None => 0,
+        }
     }
 
     // =========================================================================

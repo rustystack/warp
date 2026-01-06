@@ -93,7 +93,8 @@ pub mod ldap;
 pub use error::{Error, Result};
 pub use identity::{Group, Identity, IdentityProvider, Principal};
 pub use policy::{
-    Action, AuthorizationDecision, Effect, PolicyDocument, PolicyEngine, Resource, Statement,
+    Action, AuthorizationDecision, Effect, PolicyDocument, PolicyEngine, PrincipalSpec, Resource,
+    Statement,
 };
 pub use session::{Session, SessionManager, SessionToken};
 

@@ -294,27 +294,15 @@ mod iam_admin {
     /// List IAM users
     ///
     /// GET /admin/users
+    ///
+    /// Note: User management is not yet fully implemented.
+    /// This endpoint returns an empty list until a proper UserManager is added.
     pub async fn list_users<B: StorageBackend>(
-        State(state): State<AppState<B>>,
+        State(_state): State<AppState<B>>,
     ) -> ApiResult<impl IntoResponse> {
-        if let Some(ref iam) = state.iam {
-            let user_ids = iam.user_manager.list_users();
-            let users: Vec<UserSummary> = user_ids
-                .into_iter()
-                .filter_map(|id| {
-                    iam.user_manager.get_user(&id).map(|u| UserSummary {
-                        user_id: u.user_id.clone(),
-                        username: u.username.clone(),
-                        created_at: u.created_at.to_rfc3339(),
-                    })
-                })
-                .collect();
-
-            return Ok((StatusCode::OK, Json(ListUsersResponse { users })));
-        }
-
+        // TODO: Implement user management once UserManager is added to IamManagers
         Ok((
-            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::OK,
             Json(ListUsersResponse { users: Vec::new() }),
         ))
     }
@@ -322,53 +310,32 @@ mod iam_admin {
     /// Create an IAM user
     ///
     /// POST /admin/users
+    ///
+    /// Note: User management is not yet fully implemented.
     pub async fn create_user<B: StorageBackend>(
-        State(state): State<AppState<B>>,
-        Json(request): Json<CreateUserRequest>,
+        State(_state): State<AppState<B>>,
+        Json(_request): Json<CreateUserRequest>,
     ) -> ApiResult<impl IntoResponse> {
-        if let Some(ref iam) = state.iam {
-            match iam
-                .user_manager
-                .create_user(&request.username, &request.password)
-            {
-                Ok(user) => {
-                    let summary = UserSummary {
-                        user_id: user.user_id.clone(),
-                        username: user.username.clone(),
-                        created_at: user.created_at.to_rfc3339(),
-                    };
-                    return Ok((StatusCode::CREATED, Json(summary)));
-                }
-                Err(e) => {
-                    return Ok((
-                        StatusCode::BAD_REQUEST,
-                        Json(serde_json::json!({"error": e.to_string()})),
-                    ));
-                }
-            }
-        }
-
+        // TODO: Implement user creation once UserManager is added to IamManagers
         Ok((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"error": "IAM not enabled"})),
+            StatusCode::NOT_IMPLEMENTED,
+            Json(serde_json::json!({"error": "User management not yet implemented"})),
         ))
     }
 
     /// Delete an IAM user
     ///
     /// DELETE /admin/users/:user_id
+    ///
+    /// Note: User management is not yet fully implemented.
     pub async fn delete_user<B: StorageBackend>(
-        State(state): State<AppState<B>>,
-        Path(user_id): Path<String>,
+        State(_state): State<AppState<B>>,
+        Path(_user_id): Path<String>,
     ) -> ApiResult<impl IntoResponse> {
-        if let Some(ref iam) = state.iam {
-            iam.user_manager.delete_user(&user_id);
-            return Ok((StatusCode::NO_CONTENT, Json(serde_json::json!({}))));
-        }
-
+        // TODO: Implement user deletion once UserManager is added to IamManagers
         Ok((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"error": "IAM not enabled"})),
+            StatusCode::NOT_IMPLEMENTED,
+            Json(serde_json::json!({"error": "User management not yet implemented"})),
         ))
     }
 }
