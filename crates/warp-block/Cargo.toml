@@ -8,6 +8,8 @@ description = "NBD block device gateway for WARP storage with thin provisioning 
 
 [features]
 default = []
+# NBD server with warp-store integration
+nbd-server = ["dep:warp-store"]
 # NVMe over Fabrics support
 nvmeof = []
 # NVMe-oF with RDMA transport (simulated, no hardware dependency)
@@ -20,8 +22,8 @@ nvmeof-full = ["nvmeof", "nvmeof-rdma", "nvmeof-quic"]
 nvmeof-rdma-hw = ["nvmeof-rdma"]
 
 [dependencies]
-# WARP ecosystem
-warp-store = { path = "../warp-store" }
+# WARP ecosystem (optional - only needed for NBD server)
+warp-store = { path = "../warp-store", optional = true }
 
 # Async runtime
 tokio = { workspace = true }

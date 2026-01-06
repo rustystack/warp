@@ -122,6 +122,9 @@ pub trait NvmeOfTransport: Send + Sync + 'static {
 
     /// Close the transport listener
     async fn close(&self) -> NvmeOfResult<()>;
+
+    /// Get the local address the transport is bound to
+    async fn local_addr(&self) -> NvmeOfResult<SocketAddr>;
 }
 
 /// Individual transport connection
@@ -135,6 +138,12 @@ pub trait TransportConnection: Send + Sync {
 
     /// Get the transport type
     fn transport_type(&self) -> TransportType;
+
+    /// Initialize connection as target (perform ICReq/ICResp handshake)
+    async fn initialize_as_target(&self) -> NvmeOfResult<()>;
+
+    /// Initialize connection as initiator (perform ICReq/ICResp handshake)
+    async fn initialize_as_initiator(&self) -> NvmeOfResult<()>;
 
     /// Send a command capsule (for initiator)
     async fn send_command(&self, capsule: &CommandCapsule) -> NvmeOfResult<()>;

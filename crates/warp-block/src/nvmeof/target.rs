@@ -13,14 +13,18 @@ use parking_lot::RwLock;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use super::capsule::ResponseCapsule;
 use super::config::{NvmeOfConfig, SubsystemConfig, TransportType};
 use super::connection::{NamespaceHandler, NvmeOfConnection};
 use super::discovery::DiscoveryService;
-use super::error::{NvmeOfError, NvmeOfResult};
-use super::namespace::{AsyncVolume, NamespaceId, NvmeOfNamespace};
+use super::error::{NvmeOfError, NvmeOfResult, NvmeStatus};
+use super::namespace::{AsyncVolume, NamespaceHandlerImpl, NamespaceId, NvmeOfNamespace};
 use super::subsystem::{NvmeOfSubsystem, SubsystemManager};
 use super::transport::tcp::TcpTransport;
-use super::transport::{NvmeOfTransport, TransportConnection};
+use super::transport::{ConnectionState, NvmeOfTransport, TransportConnection};
+
+/// Namespace handler that routes to a subsystem's namespace manager
+type SubsystemNamespaceHandler = NamespaceHandlerImpl;
 
 /// NVMe-oF Target Server
 ///
@@ -275,21 +279,85 @@ impl NvmeOfTarget {
         connection: Arc<NvmeOfConnection>,
     ) -> NvmeOfResult<()> {
         let conn_id = connection.id();
+        let transport = connection.transport().clone();
 
-        // Wait for Fabrics Connect command to determine subsystem
+        // Perform ICReq/ICResp handshake
+        if let Err(e) = transport.initialize_as_target().await {
+            warn!("Connection {} handshake failed: {}", conn_id, e);
+            return Err(e);
+        }
+
+        info!("Connection {} handshake complete", conn_id);
+
+        // Start with no namespace handler - will be set after Connect command
+        let mut namespace_handler: Option<SubsystemNamespaceHandler> = None;
+
+        // Command processing loop
         loop {
-            // For now, use a simple namespace handler
-            // In real impl, we'd get the subsystem-specific handler after Connect
-            let _dummy_handler = DummyNamespaceHandler;
-
-            // This is simplified - real impl needs proper transport integration
-            // The actual command receiving happens through the transport
-            if !connection.is_active() {
+            // Check if connection is still active
+            if !connection.is_active() || !transport.is_connected() {
+                debug!("Connection {} no longer active", conn_id);
                 break;
             }
 
-            // Yield to allow other tasks
-            tokio::task::yield_now().await;
+            // Receive next command
+            let capsule = match transport.recv_command().await {
+                Ok(capsule) => capsule,
+                Err(e) => {
+                    // Check if this is a clean disconnect
+                    if !transport.is_connected() {
+                        debug!("Connection {} closed by peer", conn_id);
+                        break;
+                    }
+                    warn!("Connection {} recv error: {}", conn_id, e);
+                    break;
+                }
+            };
+
+            // Process the command
+            let handler: &dyn NamespaceHandler = match &namespace_handler {
+                Some(h) => h,
+                None => &DummyNamespaceHandler, // Before Connect command
+            };
+
+            let response = match connection.process_command(capsule.clone(), handler).await {
+                Ok(response) => {
+                    // After Connect command, set up the real namespace handler
+                    if namespace_handler.is_none() && connection.state() == ConnectionState::Ready
+                    {
+                        let subsystem_nqn = connection.subsystem_nqn();
+                        if let Some(subsystem) = self.subsystems.get(&subsystem_nqn) {
+                            namespace_handler = Some(SubsystemNamespaceHandler::new(
+                                subsystem.namespace_manager().clone(),
+                            ));
+                            info!(
+                                "Connection {} connected to subsystem {}",
+                                conn_id, subsystem_nqn
+                            );
+                        }
+                    }
+                    response
+                }
+                Err(e) => {
+                    warn!("Connection {} command processing error: {}", conn_id, e);
+                    // Create error response
+                    ResponseCapsule::error(
+                        capsule.command.cid(),
+                        0,
+                        0,
+                        NvmeStatus::InternalError,
+                    )
+                }
+            };
+
+            // Send response
+            if let Err(e) = transport.send_response(&response).await {
+                warn!("Connection {} send error: {}", conn_id, e);
+                break;
+            }
+
+            // Update stats
+            self.stats.write().commands_processed += 1;
         }
 
         debug!("Connection loop ended for {}", conn_id);

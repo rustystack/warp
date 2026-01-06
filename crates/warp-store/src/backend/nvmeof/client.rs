@@ -8,8 +8,9 @@ use bytes::Bytes;
 use tracing::{debug, trace};
 
 use super::config::{NvmeOfBackendConfig, TransportPreference};
-use super::error::NvmeOfBackendResult;
+use super::error::{NvmeOfBackendError, NvmeOfBackendResult};
 use super::pool::{NvmeOfConnectionPool, PooledConnection};
+use super::transport::{io_opcode, CommandCapsule, NvmeCommand};
 
 /// NVMe-oF client for initiator operations
 pub struct NvmeOfClient {
@@ -62,17 +63,31 @@ impl NvmeOfClient {
         let conn = self.get_connection(target_nqn).await?;
         conn.begin_command();
 
-        // In real implementation, this would:
-        // 1. Build NVMe Read command
-        // 2. Send via transport
-        // 3. Receive data
-        // For now, return placeholder
+        // Build NVMe Read command
+        let mut cmd = NvmeCommand::new();
+        cmd.set_opcode(io_opcode::READ);
+        cmd.set_nsid(namespace_id);
+        cmd.set_slba(start_lba);
+        cmd.set_nlb(block_count as u16 - 1); // NVMe uses 0-based count
 
-        let data_size = block_count as usize * self.config.block_size as usize;
-        let data = Bytes::from(vec![0u8; data_size]);
+        let mut capsule = CommandCapsule::new(cmd);
+
+        // Execute command via transport
+        let response = conn.transport.execute(&mut capsule).await?;
 
         conn.end_command();
         self.pool.return_connection(conn);
+
+        // Check for errors
+        if !response.completion.is_success() {
+            return Err(NvmeOfBackendError::Io(format!(
+                "NVMe Read failed with status {:#x}",
+                response.completion.status()
+            )));
+        }
+
+        // Get data from response
+        let data = response.data.unwrap_or_default();
 
         trace!(
             "Read {} blocks from LBA {} on {}/ns{}",
@@ -96,16 +111,31 @@ impl NvmeOfClient {
         let conn = self.get_connection(target_nqn).await?;
         conn.begin_command();
 
-        // In real implementation, this would:
-        // 1. Build NVMe Write command
-        // 2. Send via transport with data
-        // 3. Wait for completion
-
         let block_count =
             (data.len() + self.config.block_size as usize - 1) / self.config.block_size as usize;
 
+        // Build NVMe Write command
+        let mut cmd = NvmeCommand::new();
+        cmd.set_opcode(io_opcode::WRITE);
+        cmd.set_nsid(namespace_id);
+        cmd.set_slba(start_lba);
+        cmd.set_nlb(block_count as u16 - 1); // NVMe uses 0-based count
+
+        let mut capsule = CommandCapsule::with_data(cmd, data);
+
+        // Execute command via transport
+        let response = conn.transport.execute(&mut capsule).await?;
+
         conn.end_command();
         self.pool.return_connection(conn);
+
+        // Check for errors
+        if !response.completion.is_success() {
+            return Err(NvmeOfBackendError::Io(format!(
+                "NVMe Write failed with status {:#x}",
+                response.completion.status()
+            )));
+        }
 
         trace!(
             "Wrote {} blocks to LBA {} on {}/ns{}",
@@ -123,10 +153,25 @@ impl NvmeOfClient {
         let conn = self.get_connection(target_nqn).await?;
         conn.begin_command();
 
-        // Send flush command
+        // Build NVMe Flush command
+        let mut cmd = NvmeCommand::new();
+        cmd.set_opcode(io_opcode::FLUSH);
+        cmd.set_nsid(namespace_id);
+
+        let mut capsule = CommandCapsule::new(cmd);
+
+        // Execute command via transport
+        let response = conn.transport.execute(&mut capsule).await?;
 
         conn.end_command();
         self.pool.return_connection(conn);
+
+        if !response.completion.is_success() {
+            return Err(NvmeOfBackendError::Io(format!(
+                "NVMe Flush failed with status {:#x}",
+                response.completion.status()
+            )));
+        }
 
         trace!("Flushed {}/ns{}", target_nqn, namespace_id);
         Ok(())
@@ -143,10 +188,27 @@ impl NvmeOfClient {
         let conn = self.get_connection(target_nqn).await?;
         conn.begin_command();
 
-        // Send Dataset Management (TRIM) command
+        // Build NVMe Dataset Management (TRIM) command
+        let mut cmd = NvmeCommand::new();
+        cmd.set_opcode(io_opcode::DATASET_MANAGEMENT);
+        cmd.set_nsid(namespace_id);
+        cmd.set_slba(start_lba);
+        cmd.set_nlb(block_count as u16 - 1);
+
+        let mut capsule = CommandCapsule::new(cmd);
+
+        // Execute command via transport
+        let response = conn.transport.execute(&mut capsule).await?;
 
         conn.end_command();
         self.pool.return_connection(conn);
+
+        if !response.completion.is_success() {
+            return Err(NvmeOfBackendError::Io(format!(
+                "NVMe TRIM failed with status {:#x}",
+                response.completion.status()
+            )));
+        }
 
         trace!(
             "Trimmed {} blocks from LBA {} on {}/ns{}",

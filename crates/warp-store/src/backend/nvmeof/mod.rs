@@ -53,6 +53,7 @@ mod error;
 mod mapper;
 mod metadata;
 mod pool;
+mod transport;
 
 pub use backend::NvmeOfBackend;
 pub use client::NvmeOfClient;

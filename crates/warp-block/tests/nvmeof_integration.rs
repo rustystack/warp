@@ -380,3 +380,159 @@ fn test_transport_address() {
     assert_eq!(transport_addr.addr, addr);
     assert_eq!(transport_addr.to_string(), "tcp://192.168.1.100:4420");
 }
+
+// ============================================================================
+// End-to-End Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_e2e_initiator_to_target_connection() {
+    use warp_block::nvmeof::transport::NvmeOfTransport;
+
+    // Create target with MockVolume
+    let mut config = NvmeOfConfig::default();
+    config.port = 0; // Use random port
+    config.bind_addr = "127.0.0.1".parse().unwrap();
+
+    let target = NvmeOfTarget::new(config).await.unwrap();
+
+    // Create subsystem with namespace
+    let nqn = target
+        .create_subsystem(SubsystemConfig {
+            name: "e2e-test".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let volume = Arc::new(MockVolume::new(1024 * 1024, 4096)); // 1MB
+    target.add_namespace(&nqn, 1, volume.clone()).unwrap();
+
+    // Start target
+    target.run().await.unwrap();
+
+    // Get the actual bound address
+    let tcp_config = NvmeOfTcpConfig::default();
+    let mut transport = TcpTransport::new(tcp_config);
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    transport.bind(bind_addr).await.unwrap();
+    let _actual_addr = transport.local_addr().await.unwrap();
+
+    // For now, just verify the target is running
+    assert!(target.is_running());
+
+    // Clean up
+    target.stop().await.unwrap();
+    transport.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_tcp_handshake() {
+    use std::time::Duration;
+    use tokio::time::timeout;
+    use warp_block::nvmeof::transport::NvmeOfTransport;
+
+    // Set up server transport
+    let tcp_config = NvmeOfTcpConfig::default();
+    let mut server_transport = TcpTransport::new(tcp_config.clone());
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    server_transport.bind(bind_addr).await.unwrap();
+
+    let server_addr = server_transport.local_addr().await.unwrap();
+
+    // Spawn server accept task
+    let server_handle = tokio::spawn(async move {
+        let conn = server_transport.accept().await.unwrap();
+        conn.initialize_as_target().await.unwrap();
+        // Keep connection alive briefly
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        conn.close().await.unwrap();
+        server_transport.close().await.unwrap();
+    });
+
+    // Client connects
+    let client_transport = TcpTransport::new(tcp_config);
+    let client_conn = client_transport
+        .connect(&TransportAddress::tcp(server_addr))
+        .await
+        .unwrap();
+
+    // Perform handshake as initiator
+    client_conn.initialize_as_initiator().await.unwrap();
+
+    // Verify connection is established
+    assert!(client_conn.is_connected());
+
+    // Clean up
+    client_conn.close().await.unwrap();
+
+    // Wait for server to finish
+    timeout(Duration::from_secs(5), server_handle)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_command_exchange() {
+    use std::time::Duration;
+    use tokio::time::timeout;
+    // NvmeStatus is in error module, not used directly here
+    use warp_block::nvmeof::transport::NvmeOfTransport;
+
+    // Set up server transport
+    let tcp_config = NvmeOfTcpConfig::default();
+    let mut server_transport = TcpTransport::new(tcp_config.clone());
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    server_transport.bind(bind_addr).await.unwrap();
+
+    let server_addr = server_transport.local_addr().await.unwrap();
+
+    // Spawn server task to handle one command
+    let server_handle = tokio::spawn(async move {
+        let conn = server_transport.accept().await.unwrap();
+        conn.initialize_as_target().await.unwrap();
+
+        // Receive command
+        let capsule = conn.recv_command().await.unwrap();
+        let cid = capsule.command.cid();
+
+        // Send success response
+        let completion = NvmeCompletion::success(cid, 0, 0);
+        let response = ResponseCapsule::new(completion);
+        conn.send_response(&response).await.unwrap();
+
+        conn.close().await.unwrap();
+        server_transport.close().await.unwrap();
+    });
+
+    // Client connects and sends command
+    let client_transport = TcpTransport::new(tcp_config);
+    let client_conn = client_transport
+        .connect(&TransportAddress::tcp(server_addr))
+        .await
+        .unwrap();
+
+    client_conn.initialize_as_initiator().await.unwrap();
+
+    // Build and send a test command
+    let mut cmd = NvmeCommand::new();
+    cmd.set_cid(42);
+    cmd.set_opcode(0x02); // Read
+    let capsule = CommandCapsule::new(cmd);
+
+    client_conn.send_command(&capsule).await.unwrap();
+
+    // Receive response
+    let response = client_conn.recv_response().await.unwrap();
+    assert_eq!(response.completion.cid, 42);
+    assert!(response.completion.is_success());
+
+    // Clean up
+    client_conn.close().await.unwrap();
+
+    // Wait for server to finish
+    timeout(Duration::from_secs(5), server_handle)
+        .await
+        .unwrap()
+        .unwrap();
+}

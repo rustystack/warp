@@ -11,7 +11,11 @@ pub type NvmeOfBackendResult<T> = Result<T, NvmeOfBackendError>;
 pub enum NvmeOfBackendError {
     /// I/O error
     #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
+    Io(String),
+
+    /// Raw I/O error (for From impl)
+    #[error("I/O error: {0}")]
+    IoError(#[from] io::Error),
 
     /// Connection error
     #[error("Connection error: {0}")]

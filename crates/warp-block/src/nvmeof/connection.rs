@@ -172,6 +172,11 @@ impl NvmeOfConnection {
         &self.queues
     }
 
+    /// Get transport connection
+    pub fn transport(&self) -> &Arc<dyn TransportConnection> {
+        &self.transport
+    }
+
     /// Process a received command capsule
     pub async fn process_command(
         &self,

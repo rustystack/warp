@@ -131,6 +131,14 @@ impl NvmeOfTransport for TcpTransport {
         *guard = None;
         Ok(())
     }
+
+    async fn local_addr(&self) -> NvmeOfResult<SocketAddr> {
+        let guard = self.listener.lock().await;
+        let listener = guard
+            .as_ref()
+            .ok_or_else(|| NvmeOfError::Transport("Transport not bound".to_string()))?;
+        Ok(listener.local_addr()?)
+    }
 }
 
 /// TCP Connection implementation
@@ -319,6 +327,14 @@ impl TransportConnection for TcpConnection {
 
     fn transport_type(&self) -> TransportType {
         TransportType::Tcp
+    }
+
+    async fn initialize_as_target(&self) -> NvmeOfResult<()> {
+        self.initialize_connection_target().await.map(|_| ())
+    }
+
+    async fn initialize_as_initiator(&self) -> NvmeOfResult<()> {
+        self.initialize_connection_initiator().await
     }
 
     async fn send_command(&self, capsule: &CommandCapsule) -> NvmeOfResult<()> {

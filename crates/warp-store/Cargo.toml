@@ -27,7 +27,7 @@ hpc-channels = ["dep:hpc-channels"]
 chonkers = ["warp-chonkers"]
 # Blind deduplication using OPRF (content-private dedup)
 blind-dedup = ["warp-oprf/ristretto255", "sled"]
-# NVMe-oF storage backend (initiator)
+# NVMe-oF storage backend (initiator) - self-contained, no warp-block dependency
 nvmeof = []
 nvmeof-rdma = ["nvmeof", "rmpi"]
 nvmeof-quic = ["nvmeof", "dep:quinn"]

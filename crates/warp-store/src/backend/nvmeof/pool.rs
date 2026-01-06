@@ -9,10 +9,11 @@ use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use tokio::sync::Semaphore;
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 
 use super::config::{ConnectionPoolConfig, NvmeOfTargetConfig, TransportPreference};
 use super::error::{NvmeOfBackendError, NvmeOfBackendResult};
+use super::transport::TcpConnection;
 
 /// Connection state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +38,9 @@ pub struct PooledConnection {
     /// Target NQN
     pub target_nqn: String,
 
+    /// Transport connection (actual network connection)
+    pub transport: Arc<TcpConnection>,
+
     /// Current state
     state: RwLock<ConnectionState>,
 
@@ -49,10 +53,11 @@ pub struct PooledConnection {
 
 impl PooledConnection {
     /// Create a new connection
-    pub fn new(id: u64, target_nqn: String) -> Self {
+    pub fn new(id: u64, target_nqn: String, transport: Arc<TcpConnection>) -> Self {
         Self {
             id,
             target_nqn,
+            transport,
             state: RwLock::new(ConnectionState::Connecting),
             last_activity: RwLock::new(Instant::now()),
             in_flight: AtomicU64::new(0),
@@ -250,18 +255,33 @@ impl NvmeOfConnectionPool {
         .map_err(|_| NvmeOfBackendError::Timeout("Connection acquire timeout".to_string()))?
         .map_err(|_| NvmeOfBackendError::PoolExhausted)?;
 
-        // Create new connection
-        let conn_id = pool.connection_counter.fetch_add(1, Ordering::Relaxed);
-        let conn = Arc::new(PooledConnection::new(conn_id, nqn.to_string()));
+        // Get target address
+        let target_addr = pool
+            .config
+            .addresses
+            .first()
+            .ok_or_else(|| NvmeOfBackendError::Config("No target addresses configured".to_string()))?;
 
-        // In real implementation, we'd connect here
-        // For now, just mark as ready
+        // Create TCP connection
+        let transport_conn = TcpConnection::connect(*target_addr).await?;
+
+        // Initialize connection (ICReq/ICResp handshake)
+        transport_conn.initialize().await?;
+
+        // Create pooled connection
+        let conn_id = pool.connection_counter.fetch_add(1, Ordering::Relaxed);
+        let conn = Arc::new(PooledConnection::new(
+            conn_id,
+            nqn.to_string(),
+            Arc::new(transport_conn),
+        ));
+
         conn.set_state(ConnectionState::Ready);
 
         pool.add_connection(conn.clone());
         self.stats.write().connections_created += 1;
 
-        debug!("Created new connection {} for target {}", conn_id, nqn);
+        info!("Created new connection {} to target {}", conn_id, nqn);
         Ok(conn)
     }
 

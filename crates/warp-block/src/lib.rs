@@ -41,6 +41,7 @@ pub mod error;
 pub mod extent;
 pub mod nbd;
 pub mod nvmeof;
+#[cfg(feature = "nbd-server")]
 pub mod server;
 pub mod snapshot;
 pub mod thin;
@@ -49,6 +50,7 @@ pub mod volume;
 pub use config::{BlockConfig, ThinPoolConfig, ThinVolumeConfig};
 pub use error::{BlockError, BlockResult};
 pub use extent::{BlockExtent, ExtentFlags, ExtentMap};
+#[cfg(feature = "nbd-server")]
 pub use server::NbdServer;
 pub use snapshot::BlockSnapshot;
 pub use thin::{ThinPool, ThinVolume};
