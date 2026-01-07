@@ -25,7 +25,9 @@ warp-net.workspace = true
 warp-compress.workspace = true
 warp-stream.workspace = true
 warp-orch.workspace = true
+warp-store.workspace = true
 bytes.workspace = true
+toml = "0.8"
 
 clap.workspace = true
 clap_complete = "4.5"
@@ -37,10 +39,13 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 rmp-serde.workspace = true
 rand.workspace = true
 dirs.workspace = true
 rpassword = "7.3"
+chrono.workspace = true
+humansize = "2.1"
 
 [features]
 default = []
