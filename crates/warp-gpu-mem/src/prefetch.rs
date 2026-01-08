@@ -34,7 +34,7 @@ pub enum AccessPattern {
     /// Strided access
     Strided {
         /// Access stride in elements
-        stride: usize
+        stride: usize,
     },
     /// Unknown pattern
     Unknown,

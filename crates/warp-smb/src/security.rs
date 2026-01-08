@@ -2,7 +2,6 @@
 //!
 //! Implements Windows security descriptors and ACLs for SMB.
 
-
 use bytes::{BufMut, BytesMut};
 
 /// Security descriptor control flags

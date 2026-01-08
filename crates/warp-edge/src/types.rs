@@ -21,19 +21,19 @@ pub struct EdgeId([u8; 32]);
 
 impl EdgeId {
     /// Creates a new `EdgeId` from a public key
-    #[must_use] 
+    #[must_use]
     pub const fn new(public_key: [u8; 32]) -> Self {
         Self(public_key)
     }
 
     /// Returns a reference to the underlying byte array
-    #[must_use] 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
     /// Converts the `EdgeId` to a hexadecimal string
-    #[must_use] 
+    #[must_use]
     pub fn to_hex(&self) -> String {
         self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
@@ -54,8 +54,7 @@ impl std::fmt::Display for EdgeId {
 /// Edge device category
 ///
 /// Classifies edge devices by their expected characteristics and capabilities.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum EdgeType {
     /// Always-on server with high bandwidth and storage
     Server,
@@ -79,12 +78,10 @@ impl std::fmt::Display for EdgeType {
     }
 }
 
-
 /// Current connection status of an edge
 ///
 /// Tracks the real-time connectivity and performance state of an edge device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum EdgeStatus {
     /// Edge is online and responsive
     Online,
@@ -107,7 +104,6 @@ impl std::fmt::Display for EdgeStatus {
         }
     }
 }
-
 
 /// Static edge capabilities and configuration
 ///
@@ -133,7 +129,7 @@ pub struct EdgeCapabilities {
 
 impl EdgeCapabilities {
     /// Creates new edge capabilities with default values
-    #[must_use] 
+    #[must_use]
     pub const fn new(max_storage: u64, edge_type: EdgeType) -> Self {
         Self {
             max_storage,
@@ -147,13 +143,13 @@ impl EdgeCapabilities {
     }
 
     /// Returns the available storage in bytes
-    #[must_use] 
+    #[must_use]
     pub const fn available_storage(&self) -> u64 {
         self.max_storage.saturating_sub(self.used_storage)
     }
 
     /// Returns the storage utilization as a percentage (0.0 to 1.0)
-    #[must_use] 
+    #[must_use]
     pub fn storage_utilization(&self) -> f64 {
         if self.max_storage == 0 {
             return 0.0;
@@ -162,7 +158,7 @@ impl EdgeCapabilities {
     }
 
     /// Checks if the edge has sufficient storage for a given size
-    #[must_use] 
+    #[must_use]
     pub const fn has_storage(&self, required: u64) -> bool {
         self.available_storage() >= required
     }
@@ -196,7 +192,7 @@ pub struct EdgeState {
 
 impl EdgeState {
     /// Creates a new edge state with the given status
-    #[must_use] 
+    #[must_use]
     pub fn new(status: EdgeStatus) -> Self {
         Self {
             status,
@@ -209,19 +205,19 @@ impl EdgeState {
     }
 
     /// Checks if the edge is available for transfers (online or degraded)
-    #[must_use] 
+    #[must_use]
     pub const fn is_available(&self) -> bool {
         matches!(self.status, EdgeStatus::Online | EdgeStatus::Degraded)
     }
 
     /// Checks if the edge has capacity for additional transfers
-    #[must_use] 
+    #[must_use]
     pub const fn has_capacity(&self, max_concurrent: u16) -> bool {
         self.active_transfers < max_concurrent
     }
 
     /// Returns the duration since the edge was last seen
-    #[must_use] 
+    #[must_use]
     pub fn time_since_seen(&self) -> std::time::Duration {
         SystemTime::now()
             .duration_since(self.last_seen)
@@ -260,7 +256,7 @@ pub struct EdgeInfo {
 
 impl EdgeInfo {
     /// Creates a new `EdgeInfo` record
-    #[must_use] 
+    #[must_use]
     pub fn new(
         id: EdgeId,
         virtual_ip: VirtualIp,
@@ -282,19 +278,19 @@ impl EdgeInfo {
     }
 
     /// Checks if the edge record is stale (not seen recently)
-    #[must_use] 
+    #[must_use]
     pub fn is_stale(&self, threshold: std::time::Duration) -> bool {
         self.state.time_since_seen() > threshold
     }
 
     /// Returns the storage utilization percentage (0.0 to 1.0)
-    #[must_use] 
+    #[must_use]
     pub fn storage_utilization(&self) -> f64 {
         self.capabilities.storage_utilization()
     }
 
     /// Checks if the edge is available for data transfers
-    #[must_use] 
+    #[must_use]
     pub const fn is_available(&self) -> bool {
         self.state.is_available()
     }

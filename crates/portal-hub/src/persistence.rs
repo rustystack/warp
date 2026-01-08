@@ -260,7 +260,7 @@ impl PersistentStorage {
     }
 
     /// List all registered edges
-    #[must_use] 
+    #[must_use]
     pub fn list_edges(&self) -> Vec<EdgeInfo> {
         self.edges
             .iter()
@@ -335,7 +335,7 @@ impl PersistentStorage {
     }
 
     /// List all portals
-    #[must_use] 
+    #[must_use]
     pub fn list_portals(&self) -> Vec<StoredPortal> {
         self.portals
             .iter()
@@ -390,13 +390,13 @@ impl PersistentStorage {
     }
 
     /// Check if a chunk exists
-    #[must_use] 
+    #[must_use]
     pub fn has_chunk(&self, content_id: &ContentId) -> bool {
         self.chunks.contains_key(content_id).unwrap_or(false)
     }
 
     /// Check which chunks exist from a list
-    #[must_use] 
+    #[must_use]
     pub fn check_chunks(&self, content_ids: &[ContentId]) -> Vec<ContentId> {
         content_ids
             .iter()
@@ -483,7 +483,7 @@ impl PersistentStorage {
     }
 
     /// Get total number of chunks stored
-    #[must_use] 
+    #[must_use]
     pub fn chunk_count(&self) -> usize {
         self.chunks.len()
     }
@@ -516,7 +516,7 @@ impl PersistentStorage {
     }
 
     /// Check if a manifest exists
-    #[must_use] 
+    #[must_use]
     pub fn has_manifest(&self, portal_id: &PortalId) -> bool {
         self.manifests
             .contains_key(portal_id.as_bytes())
@@ -581,7 +581,7 @@ impl PersistentStorage {
     }
 
     /// Get orphan chunk count (for monitoring)
-    #[must_use] 
+    #[must_use]
     pub fn orphan_count(&self) -> usize {
         self.chunk_refs
             .iter()
@@ -596,7 +596,7 @@ impl PersistentStorage {
     // ========== Statistics ==========
 
     /// Get storage statistics
-    #[must_use] 
+    #[must_use]
     pub fn stats(&self) -> StorageStats {
         let total_chunk_bytes: usize = self
             .chunks
@@ -621,7 +621,7 @@ impl PersistentStorage {
     }
 
     /// Get database size on disk in bytes
-    #[must_use] 
+    #[must_use]
     pub fn disk_size(&self) -> u64 {
         self.db.size_on_disk().unwrap_or(0)
     }
@@ -637,7 +637,7 @@ pub enum HybridStorage {
 
 impl HybridStorage {
     /// Create in-memory storage
-    #[must_use] 
+    #[must_use]
     pub fn memory() -> Self {
         Self::Memory(Arc::new(crate::HubStorage::new()))
     }
@@ -672,7 +672,7 @@ impl HybridStorage {
     }
 
     /// Check if a chunk exists
-    #[must_use] 
+    #[must_use]
     pub fn has_chunk(&self, content_id: &ContentId) -> bool {
         match self {
             Self::Memory(s) => s.has_chunk(content_id),
@@ -681,7 +681,7 @@ impl HybridStorage {
     }
 
     /// Get chunk count
-    #[must_use] 
+    #[must_use]
     pub fn chunk_count(&self) -> usize {
         match self {
             Self::Memory(s) => s.chunk_count(),
@@ -690,7 +690,7 @@ impl HybridStorage {
     }
 
     /// Get stats
-    #[must_use] 
+    #[must_use]
     pub fn stats(&self) -> StorageStats {
         match self {
             Self::Memory(s) => s.stats(),

@@ -8,8 +8,7 @@ use tracing::{debug, error, info, warn};
 use super::{HealerMetrics, RepairJob, RepairQueue};
 use crate::error::{Error, Result};
 use crate::replication::{
-    DistributedShardManager, ShardHealth, ShardIndex, ShardKey,
-    ShardLocation,
+    DistributedShardManager, ShardHealth, ShardIndex, ShardKey, ShardLocation,
 };
 
 /// Result of a repair operation

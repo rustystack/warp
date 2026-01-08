@@ -610,7 +610,10 @@ impl DpuErasureCoder for CpuErasureCoder {
         }
 
         // Use the simple encode API
-        let original_refs: Vec<&[u8]> = original_shards.iter().map(std::vec::Vec::as_slice).collect();
+        let original_refs: Vec<&[u8]> = original_shards
+            .iter()
+            .map(std::vec::Vec::as_slice)
+            .collect();
         let recovery =
             reed_solomon_simd::encode(self.data_shards, self.parity_shards, &original_refs)
                 .map_err(|e| Error::ErasureCoding(format!("Encoding failed: {e}")))?;

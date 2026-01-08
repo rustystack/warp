@@ -436,7 +436,12 @@ impl WorkloadPredictor {
     }
 
     /// Validate a prediction (for learning)
-    pub fn validate_prediction(&self, _session_id: &str, _actual_object: &str, was_predicted: bool) {
+    pub fn validate_prediction(
+        &self,
+        _session_id: &str,
+        _actual_object: &str,
+        was_predicted: bool,
+    ) {
         if was_predicted {
             self.stats.write().correct += 1;
         }

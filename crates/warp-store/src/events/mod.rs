@@ -1100,13 +1100,19 @@ impl EventEmitter {
                 }
             });
         } else {
-            debug!(topic = topic_arn.as_str(), "AWS clients not configured - SNS publish skipped");
+            debug!(
+                topic = topic_arn.as_str(),
+                "AWS clients not configured - SNS publish skipped"
+            );
         }
     }
 
     #[cfg(not(feature = "aws-events"))]
     fn send_to_sns(&self, _event: S3Event, topic_arn: String) {
-        debug!(topic = topic_arn.as_str(), "AWS events feature not enabled - SNS publish skipped");
+        debug!(
+            topic = topic_arn.as_str(),
+            "AWS events feature not enabled - SNS publish skipped"
+        );
     }
 
     /// Send event to SQS queue
@@ -1136,13 +1142,19 @@ impl EventEmitter {
                 }
             });
         } else {
-            debug!(queue = queue_arn.as_str(), "AWS clients not configured - SQS send skipped");
+            debug!(
+                queue = queue_arn.as_str(),
+                "AWS clients not configured - SQS send skipped"
+            );
         }
     }
 
     #[cfg(not(feature = "aws-events"))]
     fn send_to_sqs(&self, _event: S3Event, queue_arn: String) {
-        debug!(queue = queue_arn.as_str(), "AWS events feature not enabled - SQS send skipped");
+        debug!(
+            queue = queue_arn.as_str(),
+            "AWS events feature not enabled - SQS send skipped"
+        );
     }
 
     /// Invoke Lambda function with event
@@ -1160,13 +1172,19 @@ impl EventEmitter {
                 }
             });
         } else {
-            debug!(function = function_arn.as_str(), "AWS clients not configured - Lambda invoke skipped");
+            debug!(
+                function = function_arn.as_str(),
+                "AWS clients not configured - Lambda invoke skipped"
+            );
         }
     }
 
     #[cfg(not(feature = "aws-events"))]
     fn invoke_lambda(&self, _event: S3Event, function_arn: String) {
-        debug!(function = function_arn.as_str(), "AWS events feature not enabled - Lambda invoke skipped");
+        debug!(
+            function = function_arn.as_str(),
+            "AWS events feature not enabled - Lambda invoke skipped"
+        );
     }
 
     /// Send event to a webhook endpoint
@@ -1214,11 +1232,7 @@ impl EventEmitter {
 
             // Retry loop
             for attempt in 1..=max_retries {
-                debug!(
-                    url = url.as_str(),
-                    attempt = attempt,
-                    "Sending webhook"
-                );
+                debug!(url = url.as_str(), attempt = attempt, "Sending webhook");
 
                 match request.try_clone().unwrap().body(body.clone()).send().await {
                     Ok(response) => {
@@ -1266,10 +1280,7 @@ impl EventEmitter {
     /// Stub for webhook sending when feature is disabled
     #[cfg(not(feature = "webhooks"))]
     fn send_to_webhook(&self, _event: S3Event, config: WebhookConfiguration) {
-        debug!(
-            url = config.url.as_str(),
-            "Webhooks feature not enabled"
-        );
+        debug!(url = config.url.as_str(), "Webhooks feature not enabled");
     }
 
     /// Send event to HPC-Channels global broadcast

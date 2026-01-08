@@ -29,7 +29,7 @@ pub enum LogLevel {
 
 impl LogLevel {
     /// Convert to tracing Level
-    #[must_use] 
+    #[must_use]
     pub const fn to_tracing_level(&self) -> Level {
         match self {
             Self::Trace => Level::TRACE,
@@ -96,7 +96,7 @@ pub enum LogOutput {
         /// Whether to write to stdout
         stdout: bool,
         /// File path for log output
-        file: PathBuf
+        file: PathBuf,
     },
 }
 
@@ -205,7 +205,7 @@ impl StructuredLogger {
     }
 
     /// Creates a new logger instance with the specified context
-    #[must_use] 
+    #[must_use]
     pub fn with_context(&self, ctx: LogContext) -> Self {
         Self {
             config: self.config.clone(),
@@ -357,7 +357,7 @@ pub struct LogBuilder {
 
 impl LogBuilder {
     /// Creates a new log builder with the specified level
-    #[must_use] 
+    #[must_use]
     pub const fn new(level: LogLevel) -> Self {
         Self {
             level,
@@ -368,7 +368,7 @@ impl LogBuilder {
     }
 
     /// Sets the message text for the log
-    #[must_use] 
+    #[must_use]
     pub fn message(mut self, msg: &str) -> Self {
         self.message = Some(msg.to_string());
         self
@@ -383,7 +383,7 @@ impl LogBuilder {
     }
 
     /// Sets the logging context
-    #[must_use] 
+    #[must_use]
     pub fn context(mut self, ctx: &LogContext) -> Self {
         self.context = Some(ctx.clone());
         self
@@ -436,7 +436,7 @@ impl LogGuard {
     }
 
     /// Returns the elapsed time since the span was entered
-    #[must_use] 
+    #[must_use]
     pub fn elapsed(&self) -> std::time::Duration {
         self.start.elapsed()
     }
@@ -447,11 +447,7 @@ impl Drop for LogGuard {
         let duration = self.start.elapsed();
         #[allow(clippy::cast_possible_truncation)]
         let duration_ms = duration.as_millis() as u64;
-        tracing::debug!(
-            span = self.name.as_str(),
-            duration_ms,
-            "span completed"
-        );
+        tracing::debug!(span = self.name.as_str(), duration_ms, "span completed");
     }
 }
 
@@ -467,7 +463,7 @@ pub struct SpanBuilder {
 
 impl SpanBuilder {
     /// Creates a new span builder with the specified name
-    #[must_use] 
+    #[must_use]
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -477,7 +473,7 @@ impl SpanBuilder {
     }
 
     /// Sets the log level for the span
-    #[must_use] 
+    #[must_use]
     pub const fn level(mut self, level: LogLevel) -> Self {
         self.level = level;
         self

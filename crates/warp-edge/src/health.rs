@@ -23,7 +23,7 @@ pub struct HealthWeights {
 
 impl HealthWeights {
     /// Creates new health weights with specified values
-    #[must_use] 
+    #[must_use]
     pub const fn new(success_rate: f64, uptime: f64, response_time: f64) -> Self {
         Self {
             success_rate,
@@ -75,7 +75,7 @@ pub struct HealthComponents {
 
 impl HealthComponents {
     /// Creates new health components with zero values
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             success_rate: 0.0,
@@ -190,13 +190,18 @@ impl HealthScore {
     }
 
     /// Calculates the composite health score from components and weights
-    #[must_use] 
+    #[must_use]
     pub fn calculate(components: &HealthComponents, weights: &HealthWeights) -> f64 {
-        weights.response_time.mul_add(components.response_time, weights.success_rate.mul_add(components.success_rate, weights.uptime * components.uptime))
+        weights.response_time.mul_add(
+            components.response_time,
+            weights
+                .success_rate
+                .mul_add(components.success_rate, weights.uptime * components.uptime),
+        )
     }
 
     /// Checks if the edge is considered healthy based on a threshold
-    #[must_use] 
+    #[must_use]
     pub fn is_healthy(&self, threshold: f64) -> bool {
         self.overall >= threshold
     }
@@ -210,7 +215,7 @@ pub struct HealthScorer {
 
 impl HealthScorer {
     /// Creates a new health scorer with default weights
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             scores: DashMap::new(),
@@ -219,7 +224,7 @@ impl HealthScorer {
     }
 
     /// Creates a new health scorer with custom weights
-    #[must_use] 
+    #[must_use]
     pub fn with_weights(weights: HealthWeights) -> Self {
         Self {
             scores: DashMap::new(),
@@ -237,10 +242,7 @@ impl HealthScorer {
 
     /// Records a failed request
     pub fn record_failure(&self, edge: &EdgeId) {
-        self.scores
-            .entry(*edge)
-            .or_default()
-            .record_failure();
+        self.scores.entry(*edge).or_default().record_failure();
     }
 
     /// Records an uptime check
@@ -252,7 +254,7 @@ impl HealthScorer {
     }
 
     /// Gets the complete health score for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get_score(&self, edge: &EdgeId) -> Option<HealthScore> {
         self.scores
             .get(edge)
@@ -260,7 +262,7 @@ impl HealthScorer {
     }
 
     /// Gets only the overall health score for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get_overall(&self, edge: &EdgeId) -> Option<f64> {
         self.scores
             .get(edge)
@@ -268,7 +270,7 @@ impl HealthScorer {
     }
 
     /// Ranks a set of edges by their health scores (best first)
-    #[must_use] 
+    #[must_use]
     pub fn rank_edges(&self, edges: &[EdgeId]) -> Vec<(EdgeId, f64)> {
         let mut ranked: Vec<(EdgeId, f64)> = edges
             .iter()
@@ -282,7 +284,7 @@ impl HealthScorer {
     }
 
     /// Gets the N healthiest edges from a set
-    #[must_use] 
+    #[must_use]
     pub fn get_healthiest(&self, edges: &[EdgeId], count: usize) -> Vec<EdgeId> {
         self.rank_edges(edges)
             .into_iter()
@@ -292,7 +294,7 @@ impl HealthScorer {
     }
 
     /// Filters edges that meet a minimum health threshold
-    #[must_use] 
+    #[must_use]
     pub fn filter_healthy(&self, edges: &[EdgeId], threshold: f64) -> Vec<EdgeId> {
         edges
             .iter()

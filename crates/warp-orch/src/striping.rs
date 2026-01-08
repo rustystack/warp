@@ -108,7 +108,7 @@ impl Default for StripingConfig {
     fn default() -> Self {
         Self {
             min_size_for_striping: 10 * 1024 * 1024, // 10MB
-            stripe_size: 512 * 1024,                  // 512KB
+            stripe_size: 512 * 1024,                 // 512KB
             max_stripes_in_flight: 16,
             stripe_timeout_ms: 5000,
             enable_redundant_requests: false,
@@ -270,11 +270,7 @@ pub struct StripedTransfer {
 
 impl StripedTransfer {
     /// Create a new striped transfer
-    pub fn new(
-        total_size: u64,
-        paths: Vec<PathId>,
-        config: StripingConfig,
-    ) -> Self {
+    pub fn new(total_size: u64, paths: Vec<PathId>, config: StripingConfig) -> Self {
         let stripe_size = config.stripe_size;
         let total_stripes = config.stripe_count(total_size);
 
@@ -315,13 +311,7 @@ impl StripedTransfer {
         let length = (remaining as usize).min(self.stripe_size);
 
         // Create stripe tracking entry
-        let stripe = Stripe::new(
-            self.transfer_id,
-            stripe_idx,
-            offset,
-            length,
-            path_id,
-        );
+        let stripe = Stripe::new(self.transfer_id, stripe_idx, offset, length, path_id);
         self.in_flight.insert(stripe_idx, stripe);
 
         self.next_dispatch += 1;
@@ -366,7 +356,8 @@ impl StripedTransfer {
         let current = current_time_ms();
         let timeout = self.config.stripe_timeout_ms;
 
-        let timed_out: Vec<u32> = self.in_flight
+        let timed_out: Vec<u32> = self
+            .in_flight
             .iter()
             .filter(|(_, stripe)| stripe.is_timed_out(current, timeout))
             .map(|(&idx, _)| idx)
@@ -676,13 +667,7 @@ mod tests {
 
     #[test]
     fn test_stripe_timeout() {
-        let stripe = Stripe::new(
-            TransferId(1),
-            0,
-            0,
-            512 * 1024,
-            PathId(1),
-        );
+        let stripe = Stripe::new(TransferId(1), 0, 0, 512 * 1024, PathId(1));
 
         // Not sent yet - not timed out
         assert!(!stripe.is_timed_out(1000, 5000));

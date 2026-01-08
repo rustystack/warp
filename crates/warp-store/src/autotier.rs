@@ -94,7 +94,7 @@ impl Default for AutoTierConfig {
             evaluation_interval: Duration::from_secs(60 * 60), // 1 hour
             cold_threshold: Duration::from_secs(7 * 24 * 60 * 60), // 7 days
             archive_threshold: Duration::from_secs(30 * 24 * 60 * 60), // 30 days
-            hot_access_rate: 1, // 1 access per day
+            hot_access_rate: 1,                                // 1 access per day
             max_concurrent_transitions: 10,
             dry_run: false,
             respect_workloads: true,
@@ -300,9 +300,7 @@ impl AutoTierEngine {
 
     /// Set the current tier assignment for an object
     pub fn set_tier(&self, key: &str, class: StorageClass) {
-        self.tier_assignments
-            .write()
-            .insert(key.to_string(), class);
+        self.tier_assignments.write().insert(key.to_string(), class);
     }
 
     /// Get the current tier assignment for an object
@@ -399,32 +397,29 @@ impl AutoTierEngine {
                 }
             }
 
-            let current_class = self
-                .get_tier(&key)
-                .unwrap_or(StorageClass::Standard);
+            let current_class = self.get_tier(&key).unwrap_or(StorageClass::Standard);
 
             // Determine target class based on coldness
-            let (target_class, reason) = if very_cold_set.contains(&key)
-                && current_class != StorageClass::Archive
-            {
-                let days = self.config.archive_threshold.as_secs() / (24 * 60 * 60);
-                (
-                    StorageClass::Archive,
-                    TierReason::VeryCold {
-                        days_since_access: days,
-                    },
-                )
-            } else if current_class == StorageClass::Standard {
-                let days = self.config.cold_threshold.as_secs() / (24 * 60 * 60);
-                (
-                    StorageClass::InfrequentAccess,
-                    TierReason::Cold {
-                        days_since_access: days,
-                    },
-                )
-            } else {
-                continue; // Already in appropriate tier
-            };
+            let (target_class, reason) =
+                if very_cold_set.contains(&key) && current_class != StorageClass::Archive {
+                    let days = self.config.archive_threshold.as_secs() / (24 * 60 * 60);
+                    (
+                        StorageClass::Archive,
+                        TierReason::VeryCold {
+                            days_since_access: days,
+                        },
+                    )
+                } else if current_class == StorageClass::Standard {
+                    let days = self.config.cold_threshold.as_secs() / (24 * 60 * 60);
+                    (
+                        StorageClass::InfrequentAccess,
+                        TierReason::Cold {
+                            days_since_access: days,
+                        },
+                    )
+                } else {
+                    continue; // Already in appropriate tier
+                };
 
             if current_class != target_class {
                 decisions.push(TierDecision {
@@ -441,9 +436,7 @@ impl AutoTierEngine {
         for (key, obj_stats) in hot_objects {
             stats.objects_scanned += 1;
 
-            let current_class = self
-                .get_tier(&key)
-                .unwrap_or(StorageClass::Standard);
+            let current_class = self.get_tier(&key).unwrap_or(StorageClass::Standard);
 
             // Skip if already in Standard
             if current_class == StorageClass::Standard {
@@ -495,9 +488,7 @@ impl AutoTierEngine {
                 for key in &prediction.predicted_objects {
                     // Check if it looks like a model file
                     if self.is_model_file(key) {
-                        let current_class = self
-                            .get_tier(key)
-                            .unwrap_or(StorageClass::Standard);
+                        let current_class = self.get_tier(key).unwrap_or(StorageClass::Standard);
 
                         if current_class != StorageClass::GpuPinned {
                             decisions.push(TierDecision {
@@ -576,9 +567,7 @@ impl AutoTierEngine {
             match workload_type {
                 WorkloadType::Training => {
                     // Protect training data and checkpoints
-                    if key.contains("batch")
-                        || key.contains("train")
-                        || key.contains("checkpoint")
+                    if key.contains("batch") || key.contains("train") || key.contains("checkpoint")
                     {
                         return Some(*workload_type);
                     }
@@ -704,7 +693,11 @@ impl AutoTierEngine {
     }
 
     /// Get recommended tier for an object based on SLAI analysis
-    pub fn recommend_tier(&self, key: &str, session_id: Option<&str>) -> (StorageClass, TierReason) {
+    pub fn recommend_tier(
+        &self,
+        key: &str,
+        session_id: Option<&str>,
+    ) -> (StorageClass, TierReason) {
         let tracker = self.tracker();
 
         // Check access pattern
@@ -738,24 +731,15 @@ impl AutoTierEngine {
         match pattern {
             AccessPattern::WriteOnceReadMany => {
                 // Keep in Standard for fast reads
-                (
-                    StorageClass::Standard,
-                    TierReason::PatternBased { pattern },
-                )
+                (StorageClass::Standard, TierReason::PatternBased { pattern })
             }
             AccessPattern::WriteHeavy => {
                 // Standard for write performance
-                (
-                    StorageClass::Standard,
-                    TierReason::PatternBased { pattern },
-                )
+                (StorageClass::Standard, TierReason::PatternBased { pattern })
             }
             AccessPattern::Repeated => {
                 // Standard for hot data
-                (
-                    StorageClass::Standard,
-                    TierReason::PatternBased { pattern },
-                )
+                (StorageClass::Standard, TierReason::PatternBased { pattern })
             }
             AccessPattern::Sequential => {
                 // Could be training data - check stats
@@ -778,8 +762,7 @@ impl AutoTierEngine {
                 // Check coldness
                 if let Some(stats) = obj_stats {
                     if let Some(last_access) = stats.last_access {
-                        let days_cold =
-                            last_access.elapsed().as_secs() / (24 * 60 * 60);
+                        let days_cold = last_access.elapsed().as_secs() / (24 * 60 * 60);
                         if days_cold > 30 {
                             return (
                                 StorageClass::Archive,
@@ -797,10 +780,7 @@ impl AutoTierEngine {
                         }
                     }
                 }
-                (
-                    StorageClass::Standard,
-                    TierReason::PatternBased { pattern },
-                )
+                (StorageClass::Standard, TierReason::PatternBased { pattern })
             }
         }
     }
@@ -875,7 +855,10 @@ impl<B: StorageBackend> AutoTierExecutor<B> {
 
         // Execute transitions with actual data movement
         for decision in decisions {
-            if let Err(e) = self.execute_transition_with_data(&decision, &mut stats).await {
+            if let Err(e) = self
+                .execute_transition_with_data(&decision, &mut stats)
+                .await
+            {
                 warn!(
                     key = %decision.key,
                     error = %e,

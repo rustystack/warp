@@ -42,7 +42,7 @@ pub enum ConfigValue {
 
 impl ConfigValue {
     /// Convert to string
-    #[must_use] 
+    #[must_use]
     pub fn as_string(&self) -> Option<&str> {
         match self {
             Self::String(s) => Some(s),
@@ -51,7 +51,7 @@ impl ConfigValue {
     }
 
     /// Convert to integer
-    #[must_use] 
+    #[must_use]
     pub const fn as_integer(&self) -> Option<i64> {
         match self {
             Self::Integer(i) => Some(*i),
@@ -60,7 +60,7 @@ impl ConfigValue {
     }
 
     /// Convert to float
-    #[must_use] 
+    #[must_use]
     pub const fn as_float(&self) -> Option<f64> {
         match self {
             Self::Float(f) => Some(*f),
@@ -69,7 +69,7 @@ impl ConfigValue {
     }
 
     /// Convert to boolean
-    #[must_use] 
+    #[must_use]
     pub const fn as_boolean(&self) -> Option<bool> {
         match self {
             Self::Boolean(b) => Some(*b),
@@ -95,7 +95,6 @@ pub enum LogLevel {
     /// Error level
     Error,
 }
-
 
 impl std::str::FromStr for LogLevel {
     type Err = ConfigError;
@@ -129,7 +128,6 @@ pub enum LogFormat {
     Compact,
 }
 
-
 impl std::str::FromStr for LogFormat {
     type Err = ConfigError;
 
@@ -161,7 +159,6 @@ pub enum LogOutput {
     /// Output to both stdout and file
     Both,
 }
-
 
 impl std::str::FromStr for LogOutput {
     type Err = ConfigError;
@@ -299,7 +296,6 @@ pub struct WarpConfig {
     pub log: LogConfig,
 }
 
-
 /// Configuration loader
 pub struct ConfigLoader {
     sources: Vec<ConfigSource>,
@@ -308,7 +304,7 @@ pub struct ConfigLoader {
 
 impl ConfigLoader {
     /// Create a new configuration loader
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             sources: vec![ConfigSource::Default],
@@ -324,7 +320,7 @@ impl ConfigLoader {
     }
 
     /// Add environment variable source with prefix
-    #[must_use] 
+    #[must_use]
     pub fn with_env_prefix(mut self, prefix: &str) -> Self {
         self.env_prefix = Some(prefix.to_string());
         self.sources.push(ConfigSource::Env);
@@ -385,7 +381,7 @@ impl ConfigLoader {
     }
 
     /// Get default configuration
-    #[must_use] 
+    #[must_use]
     pub fn default_config() -> WarpConfig {
         WarpConfig::default()
     }

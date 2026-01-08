@@ -9,8 +9,7 @@ use crate::error::{TensorError, TensorResult};
 use crate::tensor::{TensorData, TensorMeta};
 
 /// Sharding strategy for large tensors
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ShardStrategy {
     /// Shard by row (first dimension)
     Row,
@@ -22,7 +21,6 @@ pub enum ShardStrategy {
     /// No sharding
     None,
 }
-
 
 /// A single shard of a tensor
 #[derive(Debug, Clone)]
@@ -101,7 +99,7 @@ pub struct ShardedTensor {
 
 impl ShardedTensor {
     /// Create a new sharded tensor from metadata
-    #[must_use] 
+    #[must_use]
     pub fn from_meta(meta: ShardedTensorMeta) -> Self {
         Self {
             meta,
@@ -115,13 +113,13 @@ impl ShardedTensor {
     }
 
     /// Check if all shards are loaded
-    #[must_use] 
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.shards.len() == self.meta.num_shards as usize
     }
 
     /// Get number of loaded shards
-    #[must_use] 
+    #[must_use]
     pub fn loaded_shards(&self) -> usize {
         self.shards.len()
     }
@@ -155,7 +153,7 @@ impl ShardedTensor {
     }
 
     /// Get list of missing shard indices
-    #[must_use] 
+    #[must_use]
     pub fn missing_shards(&self) -> Vec<u32> {
         (0..self.meta.num_shards)
             .filter(|i| !self.shards.contains_key(i))

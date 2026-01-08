@@ -27,9 +27,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace, warn};
 
-use warp_crdt::{
-    CrdtMerge, GCounter, HLC, LWWRegister, MergeStats, ORSet, PNCounter, NodeId,
-};
+use warp_crdt::{CrdtMerge, GCounter, HLC, LWWRegister, MergeStats, NodeId, ORSet, PNCounter};
 
 use crate::ObjectKey;
 use crate::error::{Error, Result};
@@ -100,10 +98,7 @@ pub enum CrdtDelta {
         dot: (NodeId, u64),
     },
     /// ORSet remove operation
-    SetRemove {
-        key: String,
-        element: String,
-    },
+    SetRemove { key: String, element: String },
     /// GCounter increment
     GCounterIncrement {
         key: String,
@@ -177,15 +172,16 @@ impl CrdtStore {
         let mut clock = self.clock.write();
         let timestamp = clock.tick();
 
-        self.registers.entry(key_str.clone())
+        self.registers
+            .entry(key_str.clone())
             .and_modify(|reg| {
                 reg.set(data_ref.clone(), &mut *clock);
             })
-            .or_insert_with(|| {
-                LWWRegister::from_parts(data_ref.clone(), timestamp)
-            });
+            .or_insert_with(|| LWWRegister::from_parts(data_ref.clone(), timestamp));
 
-        self.stats.register_ops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .register_ops
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         debug!(key = %key, "Put object reference");
         timestamp
     }
@@ -203,9 +199,7 @@ impl CrdtStore {
 
     /// Check if object exists and is not a tombstone
     pub fn exists(&self, key: &ObjectKey) -> bool {
-        self.get(key)
-            .map(|r| !r.key.is_empty())
-            .unwrap_or(false)
+        self.get(key).map(|r| !r.key.is_empty()).unwrap_or(false)
     }
 
     // =========================================================================
@@ -214,7 +208,8 @@ impl CrdtStore {
 
     /// Add an element to a set
     pub fn set_add(&self, set_key: &str, element: String) {
-        self.sets.entry(set_key.to_string())
+        self.sets
+            .entry(set_key.to_string())
             .and_modify(|set| {
                 set.add(element.clone());
             })
@@ -224,7 +219,9 @@ impl CrdtStore {
                 set
             });
 
-        self.stats.set_ops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .set_ops
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         trace!(set_key, "Added element to set");
     }
 
@@ -232,30 +229,32 @@ impl CrdtStore {
     pub fn set_remove(&self, set_key: &str, element: &str) {
         if let Some(mut set) = self.sets.get_mut(set_key) {
             set.remove(element);
-            self.stats.set_ops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats
+                .set_ops
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             trace!(set_key, "Removed element from set");
         }
     }
 
     /// Check if set contains element
     pub fn set_contains(&self, set_key: &str, element: &str) -> bool {
-        self.sets.get(set_key)
+        self.sets
+            .get(set_key)
             .map(|set| set.contains(element))
             .unwrap_or(false)
     }
 
     /// Get all elements in a set
     pub fn set_elements(&self, set_key: &str) -> Vec<String> {
-        self.sets.get(set_key)
+        self.sets
+            .get(set_key)
             .map(|set| set.iter().cloned().collect())
             .unwrap_or_default()
     }
 
     /// Get set cardinality
     pub fn set_size(&self, set_key: &str) -> usize {
-        self.sets.get(set_key)
-            .map(|set| set.len())
-            .unwrap_or(0)
+        self.sets.get(set_key).map(|set| set.len()).unwrap_or(0)
     }
 
     // =========================================================================
@@ -269,7 +268,8 @@ impl CrdtStore {
 
     /// Increment a grow-only counter by amount
     pub fn g_counter_increment_by(&self, key: &str, amount: u64) {
-        self.g_counters.entry(key.to_string())
+        self.g_counters
+            .entry(key.to_string())
             .and_modify(|counter| {
                 counter.increment_by(amount);
             })
@@ -279,7 +279,9 @@ impl CrdtStore {
                 counter
             });
 
-        self.stats.counter_ops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .counter_ops
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         trace!(key, amount, "Incremented g-counter");
     }
 
@@ -293,7 +295,8 @@ impl CrdtStore {
 
     /// Increment a PN-counter (positive)
     pub fn pn_counter_increment(&self, key: &str) {
-        self.pn_counters.entry(key.to_string())
+        self.pn_counters
+            .entry(key.to_string())
             .and_modify(|counter| {
                 counter.increment();
             })
@@ -303,12 +306,15 @@ impl CrdtStore {
                 counter
             });
 
-        self.stats.counter_ops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .counter_ops
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Decrement a PN-counter (negative)
     pub fn pn_counter_decrement(&self, key: &str) {
-        self.pn_counters.entry(key.to_string())
+        self.pn_counters
+            .entry(key.to_string())
             .and_modify(|counter| {
                 counter.decrement();
             })
@@ -318,7 +324,9 @@ impl CrdtStore {
                 counter
             });
 
-        self.stats.counter_ops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .counter_ops
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get PN-counter value (may be negative)
@@ -338,11 +346,16 @@ impl CrdtStore {
         let mut stats = MergeStats::default();
 
         match delta {
-            CrdtDelta::Register { key, value, timestamp } => {
+            CrdtDelta::Register {
+                key,
+                value,
+                timestamp,
+            } => {
                 let mut clock = self.clock.write();
                 clock.receive(&timestamp);
 
-                self.registers.entry(key.clone())
+                self.registers
+                    .entry(key.clone())
                     .and_modify(|reg| {
                         if reg.set_with_timestamp(value.clone(), timestamp) {
                             stats.elements_updated = 1;
@@ -355,8 +368,13 @@ impl CrdtStore {
                     });
             }
 
-            CrdtDelta::SetAdd { key, element, dot: _ } => {
-                self.sets.entry(key.clone())
+            CrdtDelta::SetAdd {
+                key,
+                element,
+                dot: _,
+            } => {
+                self.sets
+                    .entry(key.clone())
                     .and_modify(|set| {
                         if !set.contains(&element) {
                             set.add(element.clone());
@@ -380,8 +398,13 @@ impl CrdtStore {
                 }
             }
 
-            CrdtDelta::GCounterIncrement { key, node_id, value } => {
-                self.g_counters.entry(key.clone())
+            CrdtDelta::GCounterIncrement {
+                key,
+                node_id,
+                value,
+            } => {
+                self.g_counters
+                    .entry(key.clone())
                     .and_modify(|counter| {
                         // Merge remote state
                         let mut remote = GCounter::new(node_id);
@@ -397,8 +420,14 @@ impl CrdtStore {
                     });
             }
 
-            CrdtDelta::PNCounterUpdate { key, node_id, positive, negative } => {
-                self.pn_counters.entry(key.clone())
+            CrdtDelta::PNCounterUpdate {
+                key,
+                node_id,
+                positive,
+                negative,
+            } => {
+                self.pn_counters
+                    .entry(key.clone())
                     .and_modify(|counter| {
                         let mut remote = PNCounter::new(node_id);
                         remote.increment_by(positive);
@@ -415,10 +444,19 @@ impl CrdtStore {
                     });
             }
 
-            CrdtDelta::FullState { registers, sets, g_counters, pn_counters } => {
+            CrdtDelta::FullState {
+                registers,
+                sets,
+                g_counters,
+                pn_counters,
+            } => {
                 // Apply full state (for initial sync)
                 for (key, value, timestamp) in registers {
-                    let delta = CrdtDelta::Register { key, value, timestamp };
+                    let delta = CrdtDelta::Register {
+                        key,
+                        value,
+                        timestamp,
+                    };
                     let s = self.apply_delta(delta);
                     stats.elements_added += s.elements_added;
                     stats.elements_updated += s.elements_updated;
@@ -427,7 +465,11 @@ impl CrdtStore {
 
                 for (key, elements) in sets {
                     for (element, dot) in elements {
-                        let delta = CrdtDelta::SetAdd { key: key.clone(), element, dot };
+                        let delta = CrdtDelta::SetAdd {
+                            key: key.clone(),
+                            element,
+                            dot,
+                        };
                         let s = self.apply_delta(delta);
                         stats.elements_added += s.elements_added;
                     }
@@ -435,7 +477,11 @@ impl CrdtStore {
 
                 for (key, counts) in g_counters {
                     for (node_id, value) in counts {
-                        let delta = CrdtDelta::GCounterIncrement { key: key.clone(), node_id, value };
+                        let delta = CrdtDelta::GCounterIncrement {
+                            key: key.clone(),
+                            node_id,
+                            value,
+                        };
                         let s = self.apply_delta(delta);
                         stats.elements_added += s.elements_added;
                         stats.elements_updated += s.elements_updated;
@@ -444,11 +490,17 @@ impl CrdtStore {
 
                 for (key, positive_counts, negative_counts) in pn_counters {
                     for (node_id, positive) in positive_counts {
-                        let negative = negative_counts.iter()
+                        let negative = negative_counts
+                            .iter()
                             .find(|(n, _)| *n == node_id)
                             .map(|(_, v)| *v)
                             .unwrap_or(0);
-                        let delta = CrdtDelta::PNCounterUpdate { key: key.clone(), node_id, positive, negative };
+                        let delta = CrdtDelta::PNCounterUpdate {
+                            key: key.clone(),
+                            node_id,
+                            positive,
+                            negative,
+                        };
                         let s = self.apply_delta(delta);
                         stats.elements_added += s.elements_added;
                         stats.elements_updated += s.elements_updated;
@@ -457,7 +509,9 @@ impl CrdtStore {
             }
         }
 
-        self.stats.merges.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .merges
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.stats.conflicts_resolved.fetch_add(
             stats.conflicts_resolved as u64,
             std::sync::atomic::Ordering::Relaxed,
@@ -470,30 +524,40 @@ impl CrdtStore {
     pub fn generate_delta(&self, since: Option<HLC>) -> CrdtDelta {
         // For now, return full state
         // A more sophisticated implementation would track deltas since a given timestamp
-        let registers: Vec<_> = self.registers.iter()
+        let registers: Vec<_> = self
+            .registers
+            .iter()
             .map(|entry| {
                 let reg = entry.value();
                 (entry.key().clone(), reg.get().clone(), *reg.timestamp())
             })
             .collect();
 
-        let sets: Vec<_> = self.sets.iter()
+        let sets: Vec<_> = self
+            .sets
+            .iter()
             .map(|entry| {
-                let elements: Vec<_> = entry.value().iter()
+                let elements: Vec<_> = entry
+                    .value()
+                    .iter()
                     .map(|e| (e.clone(), (self.node_id, 0))) // Simplified dot
                     .collect();
                 (entry.key().clone(), elements)
             })
             .collect();
 
-        let g_counters: Vec<_> = self.g_counters.iter()
+        let g_counters: Vec<_> = self
+            .g_counters
+            .iter()
             .map(|entry| {
                 let counts = vec![(entry.value().node_id(), entry.value().local_value())];
                 (entry.key().clone(), counts)
             })
             .collect();
 
-        let pn_counters: Vec<_> = self.pn_counters.iter()
+        let pn_counters: Vec<_> = self
+            .pn_counters
+            .iter()
             .map(|entry| {
                 let counter = entry.value();
                 let positive = vec![(counter.node_id(), counter.total_increments())];
@@ -502,17 +566,34 @@ impl CrdtStore {
             })
             .collect();
 
-        CrdtDelta::FullState { registers, sets, g_counters, pn_counters }
+        CrdtDelta::FullState {
+            registers,
+            sets,
+            g_counters,
+            pn_counters,
+        }
     }
 
     /// Get statistics
     pub fn stats(&self) -> CrdtStoreStatsSnapshot {
         CrdtStoreStatsSnapshot {
             merges: self.stats.merges.load(std::sync::atomic::Ordering::Relaxed),
-            conflicts_resolved: self.stats.conflicts_resolved.load(std::sync::atomic::Ordering::Relaxed),
-            register_ops: self.stats.register_ops.load(std::sync::atomic::Ordering::Relaxed),
-            set_ops: self.stats.set_ops.load(std::sync::atomic::Ordering::Relaxed),
-            counter_ops: self.stats.counter_ops.load(std::sync::atomic::Ordering::Relaxed),
+            conflicts_resolved: self
+                .stats
+                .conflicts_resolved
+                .load(std::sync::atomic::Ordering::Relaxed),
+            register_ops: self
+                .stats
+                .register_ops
+                .load(std::sync::atomic::Ordering::Relaxed),
+            set_ops: self
+                .stats
+                .set_ops
+                .load(std::sync::atomic::Ordering::Relaxed),
+            counter_ops: self
+                .stats
+                .counter_ops
+                .load(std::sync::atomic::Ordering::Relaxed),
             registers_count: self.registers.len(),
             sets_count: self.sets.len(),
             g_counters_count: self.g_counters.len(),
@@ -728,13 +809,16 @@ mod tests {
 
         // Add some data
         let key = ObjectKey::new("bucket", "test").unwrap();
-        store.put(&key, ObjectDataRef {
-            key: "bucket/test".to_string(),
-            content_hash: [0; 32],
-            size: 100,
-            locations: vec![1],
-            metadata: HashMap::new(),
-        });
+        store.put(
+            &key,
+            ObjectDataRef {
+                key: "bucket/test".to_string(),
+                content_hash: [0; 32],
+                size: 100,
+                locations: vec![1],
+                metadata: HashMap::new(),
+            },
+        );
 
         store.set_add("tags", "test".to_string());
         store.g_counter_increment("count");
@@ -743,7 +827,12 @@ mod tests {
         let delta = store.generate_delta(None);
 
         match delta {
-            CrdtDelta::FullState { registers, sets, g_counters, .. } => {
+            CrdtDelta::FullState {
+                registers,
+                sets,
+                g_counters,
+                ..
+            } => {
                 assert_eq!(registers.len(), 1);
                 assert_eq!(sets.len(), 1);
                 assert_eq!(g_counters.len(), 1);

@@ -10,9 +10,7 @@
 use crate::pool::ConnectionPool;
 use crate::progress::ProgressTracker;
 use crate::striping::StripingConfig;
-use crate::types::{
-    TransferId, TransferRequest, TransferResult, TransferState, TransferStatus,
-};
+use crate::types::{TransferId, TransferRequest, TransferResult, TransferState, TransferStatus};
 use crate::{OrchError, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};

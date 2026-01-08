@@ -19,7 +19,6 @@ pub enum CipherSuite {
     Ristretto255Sha512,
 }
 
-
 impl CipherSuite {
     /// Get the output size in bytes for this cipher suite
     pub const fn output_size(&self) -> usize {
@@ -69,8 +68,7 @@ impl std::fmt::Display for CipherSuite {
 }
 
 /// OPRF mode of operation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum OprfMode {
     /// Base OPRF - no verification
     Base,
@@ -80,7 +78,6 @@ pub enum OprfMode {
     /// Partially-oblivious PRF - includes public info
     PartiallyOblivious,
 }
-
 
 impl OprfMode {
     /// Get the mode identifier byte

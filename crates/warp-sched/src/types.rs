@@ -17,20 +17,20 @@ pub struct ChunkId(pub u64);
 impl ChunkId {
     /// Create a `ChunkId` from a u64
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn new(id: u64) -> Self {
         Self(id)
     }
 
     /// Get the inner u64 value
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn get(self) -> u64 {
         self.0
     }
 
     /// Create a `ChunkId` from the first 8 bytes of a hash
-    #[must_use] 
+    #[must_use]
     pub fn from_hash(hash: &[u8; 32]) -> Self {
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(&hash[..8]);
@@ -61,14 +61,14 @@ pub struct EdgeIdx(pub u32);
 impl EdgeIdx {
     /// Create an `EdgeIdx` from a u32
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn new(idx: u32) -> Self {
         Self(idx)
     }
 
     /// Get the inner u32 value
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn get(self) -> u32 {
         self.0
     }
@@ -96,8 +96,7 @@ impl From<usize> for EdgeIdx {
 ///
 /// Represents the current state of a chunk transfer. Repr(u8) for GPU compatibility.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ChunkStatus {
     /// Chunk is idle, not scheduled
     #[default]
@@ -112,10 +111,9 @@ pub enum ChunkStatus {
     Completed = 4,
 }
 
-
 impl ChunkStatus {
     /// Convert from u8 value
-    #[must_use] 
+    #[must_use]
     pub const fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::Idle),
@@ -129,14 +127,14 @@ impl ChunkStatus {
 
     /// Check if status represents an active transfer
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn is_active(self) -> bool {
         matches!(self, Self::Scheduled | Self::InTransfer)
     }
 
     /// Check if status represents a terminal state
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn is_terminal(self) -> bool {
         matches!(self, Self::Failed | Self::Completed)
     }
@@ -169,7 +167,7 @@ pub struct ChunkState {
 
 impl ChunkState {
     /// Create a new `ChunkState`
-    #[must_use] 
+    #[must_use]
     pub const fn new(hash: [u8; 32], size: u32, priority: u8, replica_target: u8) -> Self {
         Self {
             hash,
@@ -193,7 +191,7 @@ impl ChunkState {
 
     /// Check if chunk needs more replicas
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn needs_replication(&self) -> bool {
         self.replica_count < self.replica_target
     }
@@ -243,7 +241,7 @@ pub struct EdgeStateGpu {
 
 impl EdgeStateGpu {
     /// Create a new `EdgeStateGpu`
-    #[must_use] 
+    #[must_use]
     pub fn new(
         edge_idx: EdgeIdx,
         available_bandwidth_bps: u64,
@@ -267,20 +265,20 @@ impl EdgeStateGpu {
 
     /// Get health score as f32 (0.0-1.0)
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn health_score_f32(&self) -> f32 {
         f32::from(self.health_score) / 65535.0
     }
 
     /// Check if edge can accept more transfers
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub const fn can_accept_transfer(&self) -> bool {
         self.active_transfers < self.max_transfers && self.status == 1
     }
 
     /// Get estimated transfer time for given bytes
-    #[must_use] 
+    #[must_use]
     pub fn estimate_transfer_time_ms(&self, bytes: u32) -> u32 {
         if self.available_bandwidth_bps == 0 {
             return u32::MAX;
@@ -325,7 +323,7 @@ pub struct Assignment {
 
 impl Assignment {
     /// Create a new Assignment
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         chunk_hash: [u8; 32],
         chunk_size: u32,
@@ -344,14 +342,14 @@ impl Assignment {
 
     /// Get the number of source edges
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn edge_count(&self) -> usize {
         self.source_edges.len()
     }
 
     /// Check if assignment has any source edges
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         !self.source_edges.is_empty()
     }
@@ -372,7 +370,7 @@ pub struct AssignmentBatch {
 
 impl AssignmentBatch {
     /// Create a new `AssignmentBatch`
-    #[must_use] 
+    #[must_use]
     pub fn new(assignments: Vec<Assignment>, generation: u64) -> Self {
         let timestamp_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -386,21 +384,21 @@ impl AssignmentBatch {
     }
 
     /// Create an empty batch
-    #[must_use] 
+    #[must_use]
     pub fn empty(generation: u64) -> Self {
         Self::new(Vec::new(), generation)
     }
 
     /// Get the number of assignments in the batch
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.assignments.len()
     }
 
     /// Check if the batch is empty
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.assignments.is_empty()
     }
@@ -411,7 +409,7 @@ impl AssignmentBatch {
     }
 
     /// Get total estimated duration for all assignments
-    #[must_use] 
+    #[must_use]
     pub fn total_estimated_duration_ms(&self) -> u64 {
         self.assignments
             .iter()
@@ -443,7 +441,7 @@ pub struct ScheduleRequest {
 
 impl ScheduleRequest {
     /// Create a new `ScheduleRequest`
-    #[must_use] 
+    #[must_use]
     pub const fn new(chunks: Vec<[u8; 32]>, priority: u8, replica_target: u8) -> Self {
         Self {
             chunks,
@@ -454,7 +452,7 @@ impl ScheduleRequest {
     }
 
     /// Create a `ScheduleRequest` with a deadline
-    #[must_use] 
+    #[must_use]
     pub const fn with_deadline(
         chunks: Vec<[u8; 32]>,
         priority: u8,
@@ -471,20 +469,20 @@ impl ScheduleRequest {
 
     /// Get the number of chunks in the request
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.chunks.len()
     }
 
     /// Check if the request is empty
     #[inline]
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.chunks.is_empty()
     }
 
     /// Check if the deadline has passed
-    #[must_use] 
+    #[must_use]
     pub fn is_past_deadline(&self) -> bool {
         if let Some(deadline) = self.deadline_ms {
             let now = std::time::SystemTime::now()
@@ -498,7 +496,7 @@ impl ScheduleRequest {
     }
 
     /// Get time remaining until deadline in milliseconds
-    #[must_use] 
+    #[must_use]
     pub fn time_remaining_ms(&self) -> Option<u64> {
         self.deadline_ms.map(|deadline| {
             let now = std::time::SystemTime::now()
@@ -533,7 +531,7 @@ pub struct SchedulerMetrics {
 
 impl SchedulerMetrics {
     /// Create new metrics with all fields set to zero
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -544,7 +542,7 @@ impl SchedulerMetrics {
     }
 
     /// Get the completion rate (0.0-1.0)
-    #[must_use] 
+    #[must_use]
     pub fn completion_rate(&self) -> f64 {
         if self.total_chunks == 0 {
             return 0.0;
@@ -556,7 +554,7 @@ impl SchedulerMetrics {
     }
 
     /// Get the failure rate (0.0-1.0)
-    #[must_use] 
+    #[must_use]
     pub fn failure_rate(&self) -> f64 {
         if self.total_chunks == 0 {
             return 0.0;
@@ -565,7 +563,7 @@ impl SchedulerMetrics {
     }
 
     /// Check if metrics indicate healthy operation
-    #[must_use] 
+    #[must_use]
     pub fn is_healthy(&self) -> bool {
         self.failure_rate() < 0.1 && self.avg_failover_time_us < 50_000
     }
@@ -594,7 +592,7 @@ impl RttTrend {
     ///
     /// Compares recent samples against older samples to detect trend.
     /// Returns Stable if insufficient samples or variance is low.
-    #[must_use] 
+    #[must_use]
     pub fn from_samples(samples: &[u32], threshold: f32) -> Self {
         if samples.len() < 4 {
             return Self::Stable;
@@ -641,7 +639,7 @@ pub struct PathThroughput {
 
 impl PathThroughput {
     /// Create new throughput tracker with given capacity
-    #[must_use] 
+    #[must_use]
     pub fn new(capacity_bps: u64) -> Self {
         Self {
             bytes_in_window: 0,
@@ -685,7 +683,7 @@ impl PathThroughput {
     }
 
     /// Check if path is saturated (above threshold)
-    #[must_use] 
+    #[must_use]
     pub fn is_saturated(&self, threshold: f32) -> bool {
         self.saturation_ratio > threshold
     }
@@ -723,7 +721,7 @@ pub struct DynamicEdgeMetrics {
 
 impl DynamicEdgeMetrics {
     /// Create new metrics for an edge
-    #[must_use] 
+    #[must_use]
     pub fn new(edge_idx: EdgeIdx, capacity_bps: u64) -> Self {
         Self {
             edge_idx,
@@ -764,7 +762,7 @@ impl DynamicEdgeMetrics {
     }
 
     /// Get current average RTT in microseconds
-    #[must_use] 
+    #[must_use]
     pub fn avg_rtt_us(&self) -> u32 {
         if self.rtt_samples.is_empty() {
             return 0;
@@ -774,7 +772,7 @@ impl DynamicEdgeMetrics {
     }
 
     /// Check if edge shows signs of congestion
-    #[must_use] 
+    #[must_use]
     pub fn is_congested(&self, saturation_threshold: f32) -> bool {
         self.throughput.is_saturated(saturation_threshold) || self.rtt_trend == RttTrend::Increasing
     }

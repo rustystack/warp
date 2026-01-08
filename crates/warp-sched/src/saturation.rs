@@ -86,7 +86,7 @@ impl Default for SaturationDetector {
 
 impl SaturationDetector {
     /// Create a new `SaturationDetector` with custom threshold
-    #[must_use] 
+    #[must_use]
     pub fn with_threshold(saturation_threshold: f32) -> Self {
         Self {
             saturation_threshold: saturation_threshold.clamp(0.0, 1.0),
@@ -97,7 +97,7 @@ impl SaturationDetector {
     /// Create a detector optimized for aggressive congestion avoidance
     ///
     /// Lower thresholds mean earlier detection and more aggressive shifting.
-    #[must_use] 
+    #[must_use]
     pub const fn aggressive() -> Self {
         Self {
             saturation_threshold: 0.75,
@@ -112,7 +112,7 @@ impl SaturationDetector {
     /// Create a detector optimized for conservative congestion avoidance
     ///
     /// Higher thresholds mean more tolerance for saturation before shifting.
-    #[must_use] 
+    #[must_use]
     pub const fn conservative() -> Self {
         Self {
             saturation_threshold: 0.90,
@@ -129,7 +129,7 @@ impl SaturationDetector {
     /// Returns true if:
     /// - Saturation ratio exceeds threshold, OR
     /// - RTT trend is Increasing (congestion signal)
-    #[must_use] 
+    #[must_use]
     pub fn is_saturated(&self, metrics: &DynamicEdgeMetrics) -> bool {
         // Check saturation ratio
         if metrics.throughput.saturation_ratio > self.saturation_threshold {
@@ -138,9 +138,10 @@ impl SaturationDetector {
 
         // Check RTT trend (only if we have enough samples)
         if metrics.rtt_samples.len() >= self.min_samples
-            && metrics.rtt_trend == RttTrend::Increasing {
-                return true;
-            }
+            && metrics.rtt_trend == RttTrend::Increasing
+        {
+            return true;
+        }
 
         false
     }
@@ -152,7 +153,7 @@ impl SaturationDetector {
     /// 2. RTT trend (Increasing adds penalty, Decreasing subtracts)
     ///
     /// Returns a value in [0.0, 1.0] suitable for weighting in cost function.
-    #[must_use] 
+    #[must_use]
     pub fn saturation_penalty(&self, metrics: &DynamicEdgeMetrics) -> f32 {
         let mut penalty = 0.0;
 
@@ -182,11 +183,8 @@ impl SaturationDetector {
     /// Get all saturated edges from a metrics map
     ///
     /// Returns a list of edge indices that are currently saturated.
-    #[must_use] 
-    pub fn saturated_edges(
-        &self,
-        metrics: &HashMap<EdgeIdx, DynamicEdgeMetrics>,
-    ) -> Vec<EdgeIdx> {
+    #[must_use]
+    pub fn saturated_edges(&self, metrics: &HashMap<EdgeIdx, DynamicEdgeMetrics>) -> Vec<EdgeIdx> {
         metrics
             .iter()
             .filter(|(_, m)| self.is_saturated(m))
@@ -197,7 +195,7 @@ impl SaturationDetector {
     /// Get saturation penalties for all edges
     ///
     /// Returns a map of edge index to penalty value.
-    #[must_use] 
+    #[must_use]
     pub fn all_penalties(
         &self,
         metrics: &HashMap<EdgeIdx, DynamicEdgeMetrics>,
@@ -212,7 +210,7 @@ impl SaturationDetector {
     ///
     /// This is a simpler metric than penalty - just the saturation ratio
     /// relative to threshold.
-    #[must_use] 
+    #[must_use]
     pub fn saturation_level(&self, metrics: &DynamicEdgeMetrics) -> f32 {
         let ratio = metrics.throughput.saturation_ratio;
         if ratio <= 0.0 {
@@ -227,7 +225,7 @@ impl SaturationDetector {
     /// Check if an edge is approaching saturation (early warning)
     ///
     /// Returns true if saturation ratio is within 10% of threshold.
-    #[must_use] 
+    #[must_use]
     pub fn is_near_saturation(&self, metrics: &DynamicEdgeMetrics) -> bool {
         let warning_threshold = self.saturation_threshold * 0.9;
         metrics.throughput.saturation_ratio >= warning_threshold
@@ -237,7 +235,7 @@ impl SaturationDetector {
     ///
     /// Returns how much capacity is left before hitting the threshold.
     /// 1.0 means fully available, 0.0 means at threshold.
-    #[must_use] 
+    #[must_use]
     pub fn headroom(&self, metrics: &DynamicEdgeMetrics) -> f32 {
         let ratio = metrics.throughput.saturation_ratio;
         let headroom = (self.saturation_threshold - ratio) / self.saturation_threshold;
@@ -245,28 +243,28 @@ impl SaturationDetector {
     }
 
     /// Builder method: set saturation threshold
-    #[must_use] 
+    #[must_use]
     pub const fn with_saturation_threshold(mut self, threshold: f32) -> Self {
         self.saturation_threshold = threshold.clamp(0.0, 1.0);
         self
     }
 
     /// Builder method: set RTT increase threshold
-    #[must_use] 
+    #[must_use]
     pub const fn with_rtt_threshold(mut self, threshold: f32) -> Self {
         self.rtt_increase_threshold = threshold.clamp(0.0, 1.0);
         self
     }
 
     /// Builder method: set minimum samples
-    #[must_use] 
+    #[must_use]
     pub fn with_min_samples(mut self, samples: usize) -> Self {
         self.min_samples = samples.max(1);
         self
     }
 
     /// Builder method: set penalty scale
-    #[must_use] 
+    #[must_use]
     pub const fn with_penalty_scale(mut self, scale: f32) -> Self {
         self.saturation_penalty_scale = scale.max(0.0);
         self
@@ -292,7 +290,7 @@ pub struct SaturationSummary {
 
 impl SaturationSummary {
     /// Compute summary from edge metrics
-    #[must_use] 
+    #[must_use]
     pub fn from_metrics(
         detector: &SaturationDetector,
         metrics: &HashMap<EdgeIdx, DynamicEdgeMetrics>,
@@ -335,13 +333,13 @@ impl SaturationSummary {
     }
 
     /// Check if any edges are saturated
-    #[must_use] 
+    #[must_use]
     pub const fn has_saturation(&self) -> bool {
         self.saturated_count > 0
     }
 
     /// Get saturation ratio (fraction of edges saturated)
-    #[must_use] 
+    #[must_use]
     pub fn saturation_ratio(&self) -> f32 {
         if self.total_edges == 0 {
             0.0
@@ -356,7 +354,11 @@ mod tests {
     use super::*;
     use crate::PathThroughput;
 
-    fn make_metrics(edge_idx: u32, saturation_ratio: f32, rtt_trend: RttTrend) -> DynamicEdgeMetrics {
+    fn make_metrics(
+        edge_idx: u32,
+        saturation_ratio: f32,
+        rtt_trend: RttTrend,
+    ) -> DynamicEdgeMetrics {
         let mut metrics = DynamicEdgeMetrics::new(EdgeIdx(edge_idx), 1_000_000_000);
         metrics.throughput.saturation_ratio = saturation_ratio;
         metrics.rtt_trend = rtt_trend;

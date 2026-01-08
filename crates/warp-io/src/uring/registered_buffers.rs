@@ -106,10 +106,7 @@ impl RegisteredBufferPool {
         let buffer = free.pop_front();
 
         if buffer.is_some() {
-            trace!(
-                "Acquired buffer, {} remaining",
-                free.len()
-            );
+            trace!("Acquired buffer, {} remaining", free.len());
         }
 
         buffer

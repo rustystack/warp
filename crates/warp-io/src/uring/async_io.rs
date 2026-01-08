@@ -5,8 +5,8 @@
 
 #![cfg(all(target_os = "linux", feature = "io-uring"))]
 
-use super::backend::IoUringBackend;
 use super::IoUringConfig;
+use super::backend::IoUringBackend;
 use crate::{Result, SeqCdcConfig, SeqMode};
 use bytes::Bytes;
 use std::collections::VecDeque;

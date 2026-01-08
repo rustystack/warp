@@ -60,7 +60,7 @@ pub struct EphemeralRelayToken {
 
 impl EphemeralRelayToken {
     /// Create a new ephemeral relay token
-    #[must_use] 
+    #[must_use]
     pub fn new(
         ephemeral_identity_id: Uuid,
         session_id: String,
@@ -119,13 +119,13 @@ impl EphemeralRelayToken {
     }
 
     /// Check if token is expired
-    #[must_use] 
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         Utc::now() >= self.expires_at
     }
 
     /// Time remaining until expiry
-    #[must_use] 
+    #[must_use]
     pub fn time_remaining(&self) -> std::time::Duration {
         let now = Utc::now();
         if now >= self.expires_at {
@@ -187,7 +187,7 @@ impl Default for EphemeralRelayPermissions {
 
 impl EphemeralRelayPermissions {
     /// Create permissions with specific targets
-    #[must_use] 
+    #[must_use]
     pub fn with_targets(targets: Vec<String>) -> Self {
         Self {
             allowed_targets: targets.into_iter().collect(),
@@ -214,14 +214,14 @@ impl EphemeralRelayPermissions {
     }
 
     /// Check if target is allowed
-    #[must_use] 
+    #[must_use]
     pub fn can_relay_to(&self, target: &str) -> bool {
         // Empty allowed_targets means no restrictions
         self.allowed_targets.is_empty() || self.allowed_targets.contains(target)
     }
 
     /// Check if channel is allowed
-    #[must_use] 
+    #[must_use]
     pub fn can_access_channel(&self, channel: &str) -> bool {
         if self.allowed_channels.is_empty() {
             return true;
@@ -251,7 +251,6 @@ pub enum RelayPriority {
     /// High priority (for premium ephemeral)
     High,
 }
-
 
 /// Rate limiter for ephemeral relay requests
 struct RelayRateLimiter {
@@ -345,7 +344,7 @@ pub struct EphemeralRelayAuth {
 
 impl EphemeralRelayAuth {
     /// Create a new ephemeral relay auth service
-    #[must_use] 
+    #[must_use]
     pub fn new(signing_key: SigningKey) -> Self {
         Self {
             identities: DashMap::new(),

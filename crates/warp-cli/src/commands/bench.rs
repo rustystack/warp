@@ -284,8 +284,8 @@ struct GpuBenchResults {
 /// Benchmark GPU compression
 #[cfg(feature = "gpu")]
 async fn bench_gpu_compression(data: &[u8]) -> Option<GpuBenchResults> {
-    use warp_compress::{Compressor, GpuContext, GpuLz4Compressor, GpuZstdCompressor};
     use warp_compress::gpu::PinnedMemoryPool;
+    use warp_compress::{Compressor, GpuContext, GpuLz4Compressor, GpuZstdCompressor};
 
     let ctx = match GpuContext::new() {
         Ok(ctx) => ctx,
@@ -296,7 +296,8 @@ async fn bench_gpu_compression(data: &[u8]) -> Option<GpuBenchResults> {
     };
 
     let context = std::sync::Arc::new(ctx);
-    let memory_pool = std::sync::Arc::new(PinnedMemoryPool::with_defaults(context.context().clone()));
+    let memory_pool =
+        std::sync::Arc::new(PinnedMemoryPool::with_defaults(context.context().clone()));
 
     // Zstd
     let zstd_compressor =

@@ -286,7 +286,6 @@ impl Statement {
         }
 
         // Check resource
-        
 
         match (&self.not_resource, &self.resource) {
             (Some(nr), _) => !nr.matches(resource),

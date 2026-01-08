@@ -237,17 +237,15 @@ impl<B: StorageBackend> StorageCollectiveOps for RmpiCollectiveAdapter<B> {
                     let endpoint = Self::rank_to_endpoint(rank);
                     // Receive bytes from endpoint using rmpi handle
                     match handle.recv::<Vec<u8>>(endpoint).await {
-                        Ok(bytes) => {
-                            match Self::deserialize_object(&bytes) {
-                                Ok(received) => {
-                                    data.insert(rank, received);
-                                    debug!(rank = rank.id(), "Gathered from rank");
-                                }
-                                Err(e) => {
-                                    warn!(rank = rank.id(), error = %e, "Failed to deserialize gathered data");
-                                }
+                        Ok(bytes) => match Self::deserialize_object(&bytes) {
+                            Ok(received) => {
+                                data.insert(rank, received);
+                                debug!(rank = rank.id(), "Gathered from rank");
                             }
-                        }
+                            Err(e) => {
+                                warn!(rank = rank.id(), error = %e, "Failed to deserialize gathered data");
+                            }
+                        },
                         Err(e) => {
                             warn!(rank = rank.id(), error = %e, "Failed to receive from rank for gather");
                         }
@@ -361,17 +359,15 @@ impl<B: StorageBackend> StorageCollectiveOps for RmpiCollectiveAdapter<B> {
                     let endpoint = Self::rank_to_endpoint(rank);
                     // Receive data from peer
                     match handle.recv::<Vec<u8>>(endpoint).await {
-                        Ok(received_bytes) => {
-                            match Self::deserialize_object(&received_bytes) {
-                                Ok(received) => {
-                                    result.insert(rank, received);
-                                    debug!(rank = rank.id(), "All-gather received");
-                                }
-                                Err(e) => {
-                                    warn!(rank = rank.id(), error = %e, "Failed to deserialize all-gather data");
-                                }
+                        Ok(received_bytes) => match Self::deserialize_object(&received_bytes) {
+                            Ok(received) => {
+                                result.insert(rank, received);
+                                debug!(rank = rank.id(), "All-gather received");
                             }
-                        }
+                            Err(e) => {
+                                warn!(rank = rank.id(), error = %e, "Failed to deserialize all-gather data");
+                            }
+                        },
                         Err(e) => {
                             warn!(rank = rank.id(), error = %e, "Failed to receive in all-gather");
                         }

@@ -422,7 +422,7 @@ pub enum ReadResult {
     /// All zeros
     Zero {
         /// Number of zero bytes to read
-        length: u32
+        length: u32,
     },
     /// Data ranges to read
     Ranges(Vec<DataRange>),
@@ -436,7 +436,7 @@ pub enum DataRange {
         /// Starting offset in the volume
         offset: u64,
         /// Number of zero bytes
-        length: u32
+        length: u32,
     },
     /// Data from object storage
     Data {

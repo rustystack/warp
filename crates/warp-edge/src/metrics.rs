@@ -48,7 +48,7 @@ pub struct BandwidthEstimator {
 
 impl BandwidthEstimator {
     /// Creates a new bandwidth estimator with custom alpha (0.0 to 1.0)
-    #[must_use] 
+    #[must_use]
     pub fn new(alpha: f64) -> Self {
         Self {
             metrics: DashMap::new(),
@@ -57,7 +57,7 @@ impl BandwidthEstimator {
     }
 
     /// Creates a new bandwidth estimator with default alpha (0.2)
-    #[must_use] 
+    #[must_use]
     pub fn with_default_alpha() -> Self {
         Self::new(0.2)
     }
@@ -76,7 +76,9 @@ impl BandwidthEstimator {
         self.metrics
             .entry(edge)
             .and_modify(|m| {
-                m.upload_bps = self.alpha.mul_add(sample_bps, (1.0 - self.alpha) * m.upload_bps);
+                m.upload_bps = self
+                    .alpha
+                    .mul_add(sample_bps, (1.0 - self.alpha) * m.upload_bps);
                 m.peak_upload = m.peak_upload.max(sample_bps);
                 m.sample_count = m.sample_count.saturating_add(1);
                 m.last_updated = now;
@@ -107,7 +109,9 @@ impl BandwidthEstimator {
         self.metrics
             .entry(edge)
             .and_modify(|m| {
-                m.download_bps = self.alpha.mul_add(sample_bps, (1.0 - self.alpha) * m.download_bps);
+                m.download_bps = self
+                    .alpha
+                    .mul_add(sample_bps, (1.0 - self.alpha) * m.download_bps);
                 m.peak_download = m.peak_download.max(sample_bps);
                 m.sample_count = m.sample_count.saturating_add(1);
                 m.last_updated = now;
@@ -125,13 +129,13 @@ impl BandwidthEstimator {
     }
 
     /// Retrieves bandwidth metrics for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, edge: &EdgeId) -> Option<BandwidthMetrics> {
         self.metrics.get(edge).map(|m| m.clone())
     }
 
     /// Estimates upload time for a given number of bytes. Returns None if no metrics available.
-    #[must_use] 
+    #[must_use]
     pub fn estimate_upload_time(&self, edge: &EdgeId, bytes: u64) -> Option<Duration> {
         let metrics = self.metrics.get(edge)?;
         if metrics.upload_bps <= 0.0 {
@@ -142,7 +146,7 @@ impl BandwidthEstimator {
     }
 
     /// Estimates download time for a given number of bytes. Returns None if no metrics available.
-    #[must_use] 
+    #[must_use]
     pub fn estimate_download_time(&self, edge: &EdgeId, bytes: u64) -> Option<Duration> {
         let metrics = self.metrics.get(edge)?;
         if metrics.download_bps <= 0.0 {
@@ -197,7 +201,7 @@ impl RttEstimator {
     const BETA: f64 = 0.25; // 1/4
 
     /// Creates a new RTT estimator
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             metrics: DashMap::new(),
@@ -213,10 +217,12 @@ impl RttEstimator {
             .and_modify(|m| {
                 // RFC 6298: subsequent samples
                 let rtt_diff = (m.srtt_us as i64 - rtt_us as i64).unsigned_abs();
-                m.rttvar_us =
-                    (1.0 - Self::BETA).mul_add(m.rttvar_us as f64, Self::BETA * rtt_diff as f64) as u64;
-                m.srtt_us =
-                    (1.0 - Self::ALPHA).mul_add(m.srtt_us as f64, Self::ALPHA * rtt_us as f64) as u64;
+                m.rttvar_us = (1.0 - Self::BETA)
+                    .mul_add(m.rttvar_us as f64, Self::BETA * rtt_diff as f64)
+                    as u64;
+                m.srtt_us = (1.0 - Self::ALPHA)
+                    .mul_add(m.srtt_us as f64, Self::ALPHA * rtt_us as f64)
+                    as u64;
 
                 let rto_us = m.srtt_us + 4 * m.rttvar_us;
                 m.rto = Duration::from_micros(rto_us);
@@ -246,19 +252,19 @@ impl RttEstimator {
     }
 
     /// Retrieves RTT metrics for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, edge: &EdgeId) -> Option<RttMetrics> {
         self.metrics.get(edge).map(|m| m.clone())
     }
 
     /// Gets the recommended timeout (RTO) for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get_timeout(&self, edge: &EdgeId) -> Option<Duration> {
         self.metrics.get(edge).map(|m| m.rto)
     }
 
     /// Gets the smoothed RTT (SRTT) for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get_srtt(&self, edge: &EdgeId) -> Option<Duration> {
         self.metrics
             .get(edge)

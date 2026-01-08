@@ -273,9 +273,8 @@ impl StorageBackend for LocalBackend {
                         .unwrap_or_else(|_| Utc::now());
 
                     // Try to read object metadata for storage class and etag
-                    let obj_key = ObjectKey::new(bucket, &key).unwrap_or_else(|_| {
-                        ObjectKey::new(bucket, "unknown").unwrap()
-                    });
+                    let obj_key = ObjectKey::new(bucket, &key)
+                        .unwrap_or_else(|_| ObjectKey::new(bucket, "unknown").unwrap());
                     let meta_path = self.meta_path(&obj_key);
                     let (etag, storage_class) = if let Ok(meta_bytes) = fs::read(&meta_path).await {
                         if let Ok(meta) = rmp_serde::from_slice::<ObjectMeta>(&meta_bytes) {

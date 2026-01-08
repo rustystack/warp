@@ -50,7 +50,7 @@ pub struct ChunkAvailabilityMap {
 
 impl ChunkAvailabilityMap {
     /// Create a new empty availability map
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             chunk_to_edges: DashMap::new(),
@@ -64,23 +64,17 @@ impl ChunkAvailabilityMap {
     /// this is a no-op. Thread-safe and lock-free.
     pub fn add_chunk(&self, chunk: ChunkHash, edge: EdgeId) {
         // Add to forward index
-        self.chunk_to_edges
-            .entry(chunk)
-            .or_default()
-            .insert(edge);
+        self.chunk_to_edges.entry(chunk).or_default().insert(edge);
 
         // Add to reverse index
-        self.edge_to_chunks
-            .entry(edge)
-            .or_default()
-            .insert(chunk);
+        self.edge_to_chunks.entry(edge).or_default().insert(chunk);
     }
 
     /// Remove a chunk-edge relationship
     ///
     /// Removes the record that `edge` stores `chunk`. Returns true if the
     /// relationship existed and was removed, false otherwise.
-    #[must_use] 
+    #[must_use]
     pub fn remove_chunk(&self, chunk: &ChunkHash, edge: &EdgeId) -> bool {
         let mut removed = false;
 
@@ -112,10 +106,8 @@ impl ChunkAvailabilityMap {
     /// Removes all chunk-edge relationships for the given edge.
     /// Returns the list of chunks that were removed.
     /// Useful when an edge disconnects or fails.
-    #[must_use] 
+    #[must_use]
     pub fn remove_all_for_edge(&self, edge: &EdgeId) -> Vec<ChunkHash> {
-        
-
         if let Some((_, chunk_set)) = self.edge_to_chunks.remove(edge) {
             let chunks: Vec<ChunkHash> = chunk_set.iter().map(|r| *r.key()).collect();
 
@@ -202,10 +194,7 @@ impl ChunkAvailabilityMap {
             edge_chunks.insert(*chunk);
 
             // Add to forward index
-            self.chunk_to_edges
-                .entry(*chunk)
-                .or_default()
-                .insert(edge);
+            self.chunk_to_edges.entry(*chunk).or_default().insert(edge);
         }
     }
 

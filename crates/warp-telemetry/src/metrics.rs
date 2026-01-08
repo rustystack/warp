@@ -49,12 +49,12 @@ pub const LATENCY_BUCKETS: &[f64] = &[
 /// These buckets cover a range from 1KB to 1GB, suitable for measuring
 /// request/response sizes or file sizes.
 pub const SIZE_BUCKETS: &[f64] = &[
-    1024.0,         // 1 KB
-    10_240.0,       // 10 KB
-    102_400.0,      // 100 KB
-    1_048_576.0,    // 1 MB
-    10_485_760.0,   // 10 MB
-    104_857_600.0,  // 100 MB
+    1024.0,          // 1 KB
+    10_240.0,        // 10 KB
+    102_400.0,       // 100 KB
+    1_048_576.0,     // 1 MB
+    10_485_760.0,    // 10 MB
+    104_857_600.0,   // 100 MB
     1_073_741_824.0, // 1 GB
 ];
 
@@ -128,7 +128,7 @@ pub struct Counter {
 
 impl Counter {
     /// Creates a new counter with the given name and description.
-    #[must_use] 
+    #[must_use]
     pub fn new(name: &str, description: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -148,7 +148,7 @@ impl Counter {
     }
 
     /// Returns the current counter value.
-    #[must_use] 
+    #[must_use]
     pub fn get(&self) -> u64 {
         self.value.load(Ordering::Relaxed)
     }
@@ -159,13 +159,13 @@ impl Counter {
     }
 
     /// Returns the metric name.
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the metric description.
-    #[must_use] 
+    #[must_use]
     pub fn description(&self) -> &str {
         &self.description
     }
@@ -207,7 +207,7 @@ pub struct Gauge {
 
 impl Gauge {
     /// Creates a new gauge with the given name and description.
-    #[must_use] 
+    #[must_use]
     pub fn new(name: &str, description: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -242,19 +242,19 @@ impl Gauge {
     }
 
     /// Returns the current gauge value.
-    #[must_use] 
+    #[must_use]
     pub fn get(&self) -> f64 {
         *self.value.read()
     }
 
     /// Returns the metric name.
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the metric description.
-    #[must_use] 
+    #[must_use]
     pub fn description(&self) -> &str {
         &self.description
     }
@@ -314,7 +314,7 @@ impl Histogram {
     ///
     /// Buckets will be sorted automatically. Each bucket represents an upper bound,
     /// and values are counted in all buckets they fall into (cumulative).
-    #[must_use] 
+    #[must_use]
     pub fn new(name: &str, description: &str, buckets: Vec<f64>) -> Self {
         let mut sorted_buckets = buckets;
         sorted_buckets.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -347,13 +347,13 @@ impl Histogram {
     }
 
     /// Returns the total number of observations.
-    #[must_use] 
+    #[must_use]
     pub fn count(&self) -> u64 {
         self.inner.read().count
     }
 
     /// Returns the sum of all observed values.
-    #[must_use] 
+    #[must_use]
     pub fn sum(&self) -> f64 {
         self.inner.read().sum
     }
@@ -405,7 +405,7 @@ impl Histogram {
     }
 
     /// Returns bucket boundaries and their cumulative counts.
-    #[must_use] 
+    #[must_use]
     pub fn buckets(&self) -> Vec<(f64, u64)> {
         let inner = self.inner.read();
         inner
@@ -417,13 +417,13 @@ impl Histogram {
     }
 
     /// Returns the metric name.
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the metric description.
-    #[must_use] 
+    #[must_use]
     pub fn description(&self) -> &str {
         &self.description
     }
@@ -471,7 +471,7 @@ impl Timer {
     /// Creates a new timer with the given name and description.
     ///
     /// Uses [`LATENCY_BUCKETS`] as the default bucket configuration.
-    #[must_use] 
+    #[must_use]
     pub fn new(name: &str, description: &str) -> Self {
         Self {
             histogram: Histogram::new(name, description, LATENCY_BUCKETS.to_vec()),
@@ -479,7 +479,7 @@ impl Timer {
     }
 
     /// Starts timing and returns a guard that records duration when dropped.
-    #[must_use] 
+    #[must_use]
     pub fn start(&self) -> TimerGuard {
         TimerGuard {
             histogram: self.histogram.clone(),
@@ -501,19 +501,19 @@ impl Timer {
     }
 
     /// Returns the metric name.
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         self.histogram.name()
     }
 
     /// Returns the metric description.
-    #[must_use] 
+    #[must_use]
     pub fn description(&self) -> &str {
         self.histogram.description()
     }
 
     /// Returns the underlying histogram for advanced access.
-    #[must_use] 
+    #[must_use]
     pub const fn histogram(&self) -> &Histogram {
         &self.histogram
     }
@@ -542,7 +542,7 @@ impl TimerGuard {
     ///
     /// Calling this method records the duration immediately and prevents
     /// the Drop implementation from recording again.
-    #[must_use] 
+    #[must_use]
     pub fn stop(mut self) -> Duration {
         self.stopped = true;
         let duration = self.start.elapsed();
@@ -582,7 +582,7 @@ pub struct Labels {
 
 impl Labels {
     /// Creates an empty label set.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             labels: HashMap::new(),
@@ -590,14 +590,14 @@ impl Labels {
     }
 
     /// Adds a label and returns self for chaining.
-    #[must_use] 
+    #[must_use]
     pub fn add(mut self, key: &str, value: &str) -> Self {
         self.labels.insert(key.to_string(), value.to_string());
         self
     }
 
     /// Returns the labels as a `HashMap` reference.
-    #[must_use] 
+    #[must_use]
     pub const fn as_map(&self) -> &HashMap<String, String> {
         &self.labels
     }
@@ -672,7 +672,7 @@ enum MetricEntry {
 
 impl MetricRegistry {
     /// Creates a new empty metric registry.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             metrics: DashMap::new(),
@@ -871,20 +871,10 @@ impl MetricRegistry {
                     let _ = writeln!(output, "# HELP {} {}", h.name(), h.description());
                     let _ = writeln!(output, "# TYPE {} histogram", h.name());
                     for (bucket, count) in h.buckets() {
-                        let _ = writeln!(
-                            output,
-                            "{}_bucket{{le=\"{}\"}} {}",
-                            h.name(),
-                            bucket,
-                            count
-                        );
+                        let _ =
+                            writeln!(output, "{}_bucket{{le=\"{}\"}} {}", h.name(), bucket, count);
                     }
-                    let _ = writeln!(
-                        output,
-                        "{}_bucket{{le=\"+Inf\"}} {}",
-                        h.name(),
-                        h.count()
-                    );
+                    let _ = writeln!(output, "{}_bucket{{le=\"+Inf\"}} {}", h.name(), h.count());
                     let _ = writeln!(output, "{}_sum {}", h.name(), h.sum());
                     let _ = writeln!(output, "{}_count {}", h.name(), h.count());
                 }
@@ -893,20 +883,10 @@ impl MetricRegistry {
                     let _ = writeln!(output, "# HELP {} {}", h.name(), h.description());
                     let _ = writeln!(output, "# TYPE {} histogram", h.name());
                     for (bucket, count) in h.buckets() {
-                        let _ = writeln!(
-                            output,
-                            "{}_bucket{{le=\"{}\"}} {}",
-                            h.name(),
-                            bucket,
-                            count
-                        );
+                        let _ =
+                            writeln!(output, "{}_bucket{{le=\"{}\"}} {}", h.name(), bucket, count);
                     }
-                    let _ = writeln!(
-                        output,
-                        "{}_bucket{{le=\"+Inf\"}} {}",
-                        h.name(),
-                        h.count()
-                    );
+                    let _ = writeln!(output, "{}_bucket{{le=\"+Inf\"}} {}", h.name(), h.count());
                     let _ = writeln!(output, "{}_sum {}", h.name(), h.sum());
                     let _ = writeln!(output, "{}_count {}", h.name(), h.count());
                 }
@@ -919,7 +899,7 @@ impl MetricRegistry {
     /// Exports all metrics as a JSON array of snapshots.
     ///
     /// Returns pretty-printed JSON suitable for APIs or debugging.
-    #[must_use] 
+    #[must_use]
     pub fn export_json(&self) -> String {
         let snapshots = self.get_all_metrics();
         serde_json::to_string_pretty(&snapshots).unwrap_or_default()

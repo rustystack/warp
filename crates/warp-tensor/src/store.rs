@@ -36,7 +36,7 @@ pub struct TensorStore {
 
 impl TensorStore {
     /// Create a new tensor store
-    #[must_use] 
+    #[must_use]
     pub fn new(store: Arc<Store>, config: TensorConfig) -> Self {
         let semaphore = Semaphore::new(config.max_concurrent_ops);
 
@@ -248,9 +248,10 @@ impl TensorStore {
 
         // Check cache first
         if let Some(cached_data) = self.data_cache.get(name)
-            && let Some(cached_meta) = self.meta_cache.get(name) {
-                return Ok(TensorData::new(cached_meta.clone(), cached_data.clone()));
-            }
+            && let Some(cached_meta) = self.meta_cache.get(name)
+        {
+            return Ok(TensorData::new(cached_meta.clone(), cached_data.clone()));
+        }
 
         let key = format!("{}/tensors/{}.warp", self.config.prefix, name);
         let data = self.get_object(&key)?;
@@ -344,19 +345,19 @@ impl TensorHandle {
     }
 
     /// Check if data is loaded
-    #[must_use] 
+    #[must_use]
     pub fn is_loaded(&self) -> bool {
         self.loaded
     }
 
     /// Get tensor name
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.meta.name
     }
 
     /// Get tensor shape
-    #[must_use] 
+    #[must_use]
     pub fn shape(&self) -> &[usize] {
         &self.meta.shape
     }
@@ -376,7 +377,7 @@ pub struct TensorQuery {
 
 impl TensorQuery {
     /// Create a new query
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             name_pattern: None,
@@ -394,21 +395,21 @@ impl TensorQuery {
     }
 
     /// Filter by dtype
-    #[must_use] 
+    #[must_use]
     pub fn dtype(mut self, dtype: crate::tensor::TensorDtype) -> Self {
         self.dtype = Some(dtype);
         self
     }
 
     /// Filter by minimum size
-    #[must_use] 
+    #[must_use]
     pub fn min_size(mut self, size: u64) -> Self {
         self.min_size = Some(size);
         self
     }
 
     /// Filter by maximum size
-    #[must_use] 
+    #[must_use]
     pub fn max_size(mut self, size: u64) -> Self {
         self.max_size = Some(size);
         self

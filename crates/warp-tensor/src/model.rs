@@ -125,7 +125,7 @@ impl ModelMetadataBuilder {
     }
 
     /// Build the metadata
-    #[must_use] 
+    #[must_use]
     pub fn build(self) -> ModelMetadata {
         self.meta
     }
@@ -207,7 +207,7 @@ pub struct ModelStore {
 
 impl ModelStore {
     /// Create a new model store
-    #[must_use] 
+    #[must_use]
     pub fn new(config: TensorConfig) -> Self {
         Self {
             config,
@@ -225,19 +225,19 @@ impl ModelStore {
     }
 
     /// Get model metadata
-    #[must_use] 
+    #[must_use]
     pub fn get_model(&self, name: &str) -> Option<ModelMetadata> {
         self.models.get(name).map(|m| m.clone())
     }
 
     /// Check if model exists
-    #[must_use] 
+    #[must_use]
     pub fn model_exists(&self, name: &str) -> bool {
         self.models.contains_key(name)
     }
 
     /// List all models
-    #[must_use] 
+    #[must_use]
     pub fn list_models(&self) -> Vec<String> {
         self.models.iter().map(|m| m.key().clone()).collect()
     }
@@ -254,8 +254,9 @@ impl ModelStore {
 
         let version_name = version.version.clone();
 
-        if let Some(mut v) = self.versions
-            .get_mut(model_name) { v.push(version) }
+        if let Some(mut v) = self.versions.get_mut(model_name) {
+            v.push(version)
+        }
 
         // Set as current if first version
         if !self.current_versions.contains_key(model_name) {
@@ -325,7 +326,7 @@ impl ModelStore {
     }
 
     /// Remove a model and all versions
-    #[must_use] 
+    #[must_use]
     pub fn remove_model(&self, name: &str) -> Option<ModelMetadata> {
         self.versions.remove(name);
         self.current_versions.remove(name);
@@ -333,7 +334,7 @@ impl ModelStore {
     }
 
     /// Find models by tag
-    #[must_use] 
+    #[must_use]
     pub fn find_by_tag(&self, tag: &str) -> Vec<String> {
         self.models
             .iter()
@@ -343,7 +344,7 @@ impl ModelStore {
     }
 
     /// Get model count
-    #[must_use] 
+    #[must_use]
     pub fn model_count(&self) -> usize {
         self.models.len()
     }

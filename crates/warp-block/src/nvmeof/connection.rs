@@ -385,9 +385,7 @@ impl NvmeOfConnection {
                 self.touch();
                 Ok(ResponseCapsule::success(cid, 0, sq_head))
             }
-            Some(AdminOpcode::AsyncEventRequest) => {
-                self.handle_async_event_request(cmd).await
-            }
+            Some(AdminOpcode::AsyncEventRequest) => self.handle_async_event_request(cmd).await,
             _ => {
                 warn!("Unsupported admin command: {:#04x}", cmd.opcode());
                 Ok(ResponseCapsule::error(

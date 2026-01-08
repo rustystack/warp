@@ -1,6 +1,5 @@
 //! Tensor format readers and writers
 
-
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +25,7 @@ pub enum TensorFormat {
 
 impl TensorFormat {
     /// Get file extension for format
-    #[must_use] 
+    #[must_use]
     pub fn extension(&self) -> &'static str {
         match self {
             Self::WarpNative => ".warp",
@@ -39,7 +38,7 @@ impl TensorFormat {
     }
 
     /// Detect format from file extension
-    #[must_use] 
+    #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
             ".warp" | "warp" => Some(Self::WarpNative),
@@ -127,7 +126,7 @@ pub struct WarpNativeReader;
 
 impl WarpNativeReader {
     /// Create a new reader
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -218,7 +217,7 @@ pub struct WarpNativeWriter;
 
 impl WarpNativeWriter {
     /// Create a new writer
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }

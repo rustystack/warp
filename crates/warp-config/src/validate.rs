@@ -1,6 +1,8 @@
 //! Configuration validation for warp-portal
 
-use crate::config::{WarpConfig, NetworkConfig, StorageConfig, SchedulerConfig, LogConfig, LogOutput};
+use crate::config::{
+    LogConfig, LogOutput, NetworkConfig, SchedulerConfig, StorageConfig, WarpConfig,
+};
 use std::fmt;
 
 /// Result of configuration validation
@@ -14,7 +16,7 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     /// Creates a new empty validation result
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             errors: Vec::new(),
@@ -23,13 +25,13 @@ impl ValidationResult {
     }
 
     /// Returns true if there are no validation errors
-    #[must_use] 
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.errors.is_empty()
     }
 
     /// Returns true if there are any warnings present
-    #[must_use] 
+    #[must_use]
     pub fn has_warnings(&self) -> bool {
         !self.warnings.is_empty()
     }
@@ -158,20 +160,20 @@ pub struct Validator {
 
 impl Validator {
     /// Creates a new validator with default settings
-    #[must_use] 
+    #[must_use]
     pub const fn new() -> Self {
         Self { strict_mode: false }
     }
 
     /// Enables or disables strict validation mode
-    #[must_use] 
+    #[must_use]
     pub const fn with_strict_mode(mut self, enabled: bool) -> Self {
         self.strict_mode = enabled;
         self
     }
 
     /// Validates a complete `WarpConfig` and returns the result
-    #[must_use] 
+    #[must_use]
     pub fn validate(&self, config: &WarpConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
         result.merge(self.validate_network(&config.network));
@@ -187,7 +189,7 @@ impl Validator {
     }
 
     /// Validates network configuration settings
-    #[must_use] 
+    #[must_use]
     pub fn validate_network(&self, config: &NetworkConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -220,7 +222,7 @@ impl Validator {
     }
 
     /// Validates storage configuration settings
-    #[must_use] 
+    #[must_use]
     pub fn validate_storage(&self, config: &StorageConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -260,7 +262,7 @@ impl Validator {
     }
 
     /// Validates scheduler configuration settings
-    #[must_use] 
+    #[must_use]
     pub fn validate_scheduler(&self, config: &SchedulerConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -298,7 +300,7 @@ impl Validator {
     }
 
     /// Validates logging configuration settings
-    #[must_use] 
+    #[must_use]
     pub fn validate_log(&self, config: &LogConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -348,7 +350,7 @@ pub struct PortRangeRule;
 
 impl PortRangeRule {
     /// Validates that ports are not privileged and do not conflict
-    #[must_use] 
+    #[must_use]
     pub fn validate_ports(&self, quic_port: u16, http_port: u16) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
@@ -394,7 +396,7 @@ pub struct PathExistsRule;
 
 impl PathExistsRule {
     /// Validates that storage paths exist and are accessible
-    #[must_use] 
+    #[must_use]
     pub fn validate_paths(&self, config: &StorageConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
@@ -505,7 +507,7 @@ pub struct ResourceLimitRule;
 
 impl ResourceLimitRule {
     /// Validates that max connections is within acceptable limits
-    #[must_use] 
+    #[must_use]
     pub fn validate_max_connections(&self, max_connections: usize) -> Option<ValidationError> {
         if max_connections > 10000 {
             Some(ValidationError::new(
@@ -525,7 +527,7 @@ impl ResourceLimitRule {
     }
 
     /// Validates cache size and warns if it exceeds recommended limits
-    #[must_use] 
+    #[must_use]
     pub fn validate_cache_size(&self, cache_size: u64) -> Option<ValidationWarning> {
         let gb_100 = 100u64 * 1024 * 1024 * 1024;
         if cache_size > gb_100 {
@@ -540,14 +542,12 @@ impl ResourceLimitRule {
     }
 
     /// Validates that max concurrent transfers is within acceptable limits
-    #[must_use] 
+    #[must_use]
     pub fn validate_concurrent_transfers(&self, max_transfers: usize) -> Option<ValidationError> {
         if max_transfers > 1000 {
             Some(ValidationError::new(
                 "scheduler.max_concurrent_transfers",
-                format!(
-                    "Max concurrent transfers {max_transfers} exceeds limit of 1000"
-                ),
+                format!("Max concurrent transfers {max_transfers} exceeds limit of 1000"),
                 ErrorCode::OutOfRange,
             ))
         } else if max_transfers == 0 {
@@ -626,20 +626,20 @@ pub struct CustomValidator {
 
 impl CustomValidator {
     /// Creates a new custom validator with no rules
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self { rules: Vec::new() }
     }
 
     /// Adds a validation rule to this validator
-    #[must_use] 
+    #[must_use]
     pub fn add_rule(mut self, rule: Box<dyn ValidationRule>) -> Self {
         self.rules.push(rule);
         self
     }
 
     /// Validates the configuration using all registered rules
-    #[must_use] 
+    #[must_use]
     pub fn validate(&self, config: &WarpConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
         for rule in &self.rules {

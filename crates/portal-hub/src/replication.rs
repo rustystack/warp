@@ -60,7 +60,7 @@ pub struct PeerInfo {
 
 impl PeerInfo {
     /// Create a new peer info
-    #[must_use] 
+    #[must_use]
     pub fn new(addr: SocketAddr, id: String) -> Self {
         Self {
             addr,
@@ -78,7 +78,7 @@ impl PeerInfo {
     }
 
     /// Check if peer is stale (hasn't been seen recently)
-    #[must_use] 
+    #[must_use]
     pub fn is_stale(&self, threshold: Duration) -> bool {
         let age = chrono::Utc::now() - self.last_seen;
         age > chrono::TimeDelta::from_std(threshold).unwrap_or(chrono::TimeDelta::MAX)
@@ -104,7 +104,7 @@ impl ChunkLocations {
     }
 
     /// Get replication count
-    #[must_use] 
+    #[must_use]
     pub fn replication_count(&self) -> usize {
         self.peers.len()
     }
@@ -153,7 +153,7 @@ pub struct ReplicationManager {
 
 impl ReplicationManager {
     /// Create a new replication manager
-    #[must_use] 
+    #[must_use]
     pub fn new(storage: Arc<HubStorage>, config: ReplicationConfig, local_id: String) -> Self {
         let (shutdown, _) = tokio::sync::broadcast::channel(1);
 
@@ -195,7 +195,7 @@ impl ReplicationManager {
     }
 
     /// Get healthy peers
-    #[must_use] 
+    #[must_use]
     pub fn healthy_peers(&self) -> Vec<PeerInfo> {
         self.peers
             .iter()
@@ -218,7 +218,7 @@ impl ReplicationManager {
     }
 
     /// Get chunks that are under-replicated
-    #[must_use] 
+    #[must_use]
     pub fn under_replicated_chunks(&self) -> Vec<(ContentId, usize)> {
         self.locations
             .iter()
@@ -234,7 +234,7 @@ impl ReplicationManager {
     }
 
     /// Get chunks that are over-replicated (for cleanup)
-    #[must_use] 
+    #[must_use]
     pub fn over_replicated_chunks(&self) -> Vec<(ContentId, usize)> {
         self.locations
             .iter()
@@ -353,7 +353,7 @@ impl ReplicationManager {
     }
 
     /// Start the background replication worker
-    #[must_use] 
+    #[must_use]
     pub fn start_worker(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         let manager = self.clone();
         let mut shutdown = self.shutdown.subscribe();
@@ -406,7 +406,7 @@ impl ReplicationManager {
     }
 
     /// Get replication statistics
-    #[must_use] 
+    #[must_use]
     pub fn stats(&self) -> ReplicationStats {
         let under_replicated = self.under_replicated_chunks().len();
         let over_replicated = self.over_replicated_chunks().len();
@@ -444,7 +444,7 @@ pub struct ReplicationStats {
 
 impl ReplicationStats {
     /// Check if replication is healthy
-    #[must_use] 
+    #[must_use]
     pub const fn is_healthy(&self) -> bool {
         self.under_replicated == 0 && self.healthy_peers >= self.replication_factor
     }

@@ -3,8 +3,8 @@
 //! Maps object storage keys to NVMe LBA (Logical Block Address) ranges.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -310,9 +310,7 @@ impl ObjectBlockMapper {
 
         trace!(
             "Allocated {} blocks at LBA {} for object (size={})",
-            blocks_needed,
-            start_lba,
-            object_size
+            blocks_needed, start_lba, object_size
         );
 
         Ok(location)

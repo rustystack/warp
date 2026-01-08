@@ -89,8 +89,7 @@ impl TryFrom<u16> for SmbCommand {
 }
 
 /// SMB2 header flags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Smb2Flags(u32);
 
 impl Smb2Flags {
@@ -139,7 +138,6 @@ impl Smb2Flags {
         self.0 |= Self::RESPONSE;
     }
 }
-
 
 /// SMB2 header
 #[derive(Debug, Clone)]

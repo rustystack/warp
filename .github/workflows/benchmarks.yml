@@ -1,0 +1,271 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Compression benchmarks
+  compress-benchmarks:
+    name: Compression Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run compression benchmarks
+        run: cargo bench -p warp-compress -- --noplot
+        continue-on-error: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: compress-benchmarks
+          path: target/criterion/
+          retention-days: 30
+        if: always()
+
+  # Hashing benchmarks
+  hash-benchmarks:
+    name: Hashing Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run hashing benchmarks
+        run: cargo bench -p warp-hash -- --noplot
+        continue-on-error: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: hash-benchmarks
+          path: target/criterion/
+          retention-days: 30
+        if: always()
+
+  # Cryptography benchmarks
+  crypto-benchmarks:
+    name: Cryptography Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run crypto benchmarks
+        run: cargo bench -p warp-crypto -- --noplot
+        continue-on-error: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-benchmarks
+          path: target/criterion/
+          retention-days: 30
+        if: always()
+
+  # Network/IO benchmarks
+  io-benchmarks:
+    name: IO Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run IO benchmarks
+        run: cargo bench -p warp-io -- --noplot
+        continue-on-error: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: io-benchmarks
+          path: target/criterion/
+          retention-days: 30
+        if: always()
+
+  # GPU benchmarks (self-hosted)
+  gpu-benchmarks:
+    name: GPU Benchmarks
+    runs-on: [self-hosted, gpu, cuda]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check CUDA availability
+        run: nvidia-smi
+
+      - name: Run GPU benchmarks
+        run: |
+          cargo bench -p warp-gpu -- --noplot || true
+          cargo bench -p warp-tensor -- --noplot || true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-benchmarks
+          path: target/criterion/
+          retention-days: 30
+        if: always()
+
+  # Benchmark summary
+  benchmark-summary:
+    name: Benchmark Summary
+    runs-on: ubuntu-latest
+    needs: [compress-benchmarks, hash-benchmarks, crypto-benchmarks, io-benchmarks]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: benchmarks/
+        continue-on-error: true
+
+      - name: Generate summary
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Compression | ${{ needs.compress-benchmarks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Hashing | ${{ needs.hash-benchmarks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cryptography | ${{ needs.crypto-benchmarks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IO | ${{ needs.io-benchmarks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmark artifacts are available for download." >> $GITHUB_STEP_SUMMARY

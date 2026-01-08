@@ -70,11 +70,11 @@ pub struct BackpressureConfig {
 impl Default for BackpressureConfig {
     fn default() -> Self {
         Self {
-            high_water_mark: 100 * 1024 * 1024,     // 100MB
-            low_water_mark: 50 * 1024 * 1024,       // 50MB
+            high_water_mark: 100 * 1024 * 1024, // 100MB
+            low_water_mark: 50 * 1024 * 1024,   // 50MB
             min_throttle_ratio: 0.1,
-            per_edge_high_water: 20 * 1024 * 1024,  // 20MB
-            per_edge_low_water: 10 * 1024 * 1024,   // 10MB
+            per_edge_high_water: 20 * 1024 * 1024, // 20MB
+            per_edge_low_water: 10 * 1024 * 1024,  // 10MB
             smoothing_factor: 0.3,
         }
     }
@@ -84,7 +84,7 @@ impl BackpressureConfig {
     /// Create a more aggressive backpressure config
     ///
     /// Lower thresholds, faster response to congestion.
-    #[must_use] 
+    #[must_use]
     pub const fn aggressive() -> Self {
         Self {
             high_water_mark: 50 * 1024 * 1024,
@@ -99,7 +99,7 @@ impl BackpressureConfig {
     /// Create a more lenient backpressure config
     ///
     /// Higher thresholds, more tolerance for queue buildup.
-    #[must_use] 
+    #[must_use]
     pub const fn lenient() -> Self {
         Self {
             high_water_mark: 200 * 1024 * 1024,
@@ -112,7 +112,7 @@ impl BackpressureConfig {
     }
 
     /// Builder: set water marks
-    #[must_use] 
+    #[must_use]
     pub const fn with_water_marks(mut self, low: u64, high: u64) -> Self {
         self.low_water_mark = low;
         self.high_water_mark = high;
@@ -120,7 +120,7 @@ impl BackpressureConfig {
     }
 
     /// Builder: set minimum throttle ratio
-    #[must_use] 
+    #[must_use]
     pub const fn with_min_throttle(mut self, min: f32) -> Self {
         self.min_throttle_ratio = min.clamp(0.0, 1.0);
         self
@@ -151,7 +151,7 @@ pub struct BackpressureState {
 
 impl BackpressureState {
     /// Create a new backpressure state
-    #[must_use] 
+    #[must_use]
     pub fn new(config: BackpressureConfig) -> Self {
         Self {
             config,
@@ -232,60 +232,63 @@ impl BackpressureState {
         };
 
         // Apply smoothing
-        self.throttle_ratio = self.config.smoothing_factor.mul_add(target_ratio - self.throttle_ratio, self.throttle_ratio);
+        self.throttle_ratio = self
+            .config
+            .smoothing_factor
+            .mul_add(target_ratio - self.throttle_ratio, self.throttle_ratio);
     }
 
     /// Get adjusted max assignments for current tick
-    #[must_use] 
+    #[must_use]
     pub fn adjusted_max_assignments(&self, base_max: usize) -> usize {
         let adjusted = (base_max as f32 * self.throttle_ratio) as usize;
         adjusted.max(1) // Always allow at least 1
     }
 
     /// Check if an edge should be avoided due to backpressure
-    #[must_use] 
+    #[must_use]
     pub fn is_edge_pressured(&self, edge_idx: EdgeIdx) -> bool {
         self.pressured_edges.contains(&edge_idx)
     }
 
     /// Get current throttle ratio
-    #[must_use] 
+    #[must_use]
     pub const fn throttle_ratio(&self) -> f32 {
         self.throttle_ratio
     }
 
     /// Get current queue depth
-    #[must_use] 
+    #[must_use]
     pub const fn queue_depth(&self) -> u64 {
         self.queue_depth_bytes
     }
 
     /// Get queue depth for a specific edge
-    #[must_use] 
+    #[must_use]
     pub fn edge_queue_depth(&self, edge_idx: EdgeIdx) -> u64 {
         self.edge_queue_depth.get(&edge_idx).copied().unwrap_or(0)
     }
 
     /// Get all pressured edges
-    #[must_use] 
+    #[must_use]
     pub const fn pressured_edges(&self) -> &HashSet<EdgeIdx> {
         &self.pressured_edges
     }
 
     /// Get number of pressured edges
-    #[must_use] 
+    #[must_use]
     pub fn pressured_edge_count(&self) -> usize {
         self.pressured_edges.len()
     }
 
     /// Check if system is under global backpressure
-    #[must_use] 
+    #[must_use]
     pub fn is_under_pressure(&self) -> bool {
         self.throttle_ratio < 1.0
     }
 
     /// Get configuration
-    #[must_use] 
+    #[must_use]
     pub const fn config(&self) -> &BackpressureConfig {
         &self.config
     }
@@ -318,7 +321,7 @@ pub struct BackpressureSummary {
 
 impl BackpressureSummary {
     /// Create summary from state
-    #[must_use] 
+    #[must_use]
     pub fn from_state(state: &BackpressureState) -> Self {
         let usage_percent = if state.config.high_water_mark > 0 {
             (state.queue_depth_bytes as f32 / state.config.high_water_mark as f32) * 100.0
@@ -337,7 +340,7 @@ impl BackpressureSummary {
     }
 
     /// Check if summary indicates pressure
-    #[must_use] 
+    #[must_use]
     pub fn is_under_pressure(&self) -> bool {
         self.throttle_ratio < 1.0
     }

@@ -10,7 +10,7 @@ use tracing::{debug, trace};
 use super::config::{NvmeOfBackendConfig, TransportPreference};
 use super::error::{NvmeOfBackendError, NvmeOfBackendResult};
 use super::pool::{NvmeOfConnectionPool, PooledConnection};
-use super::transport::{admin_opcode, io_opcode, CommandCapsule, NvmeCommand};
+use super::transport::{CommandCapsule, NvmeCommand, admin_opcode, io_opcode};
 
 /// NVMe-oF client for initiator operations
 pub struct NvmeOfClient {
@@ -91,10 +91,7 @@ impl NvmeOfClient {
 
         trace!(
             "Read {} blocks from LBA {} on {}/ns{}",
-            block_count,
-            start_lba,
-            target_nqn,
-            namespace_id
+            block_count, start_lba, target_nqn, namespace_id
         );
 
         Ok(data)
@@ -139,10 +136,7 @@ impl NvmeOfClient {
 
         trace!(
             "Wrote {} blocks to LBA {} on {}/ns{}",
-            block_count,
-            start_lba,
-            target_nqn,
-            namespace_id
+            block_count, start_lba, target_nqn, namespace_id
         );
 
         Ok(())
@@ -212,10 +206,7 @@ impl NvmeOfClient {
 
         trace!(
             "Trimmed {} blocks from LBA {} on {}/ns{}",
-            block_count,
-            start_lba,
-            target_nqn,
-            namespace_id
+            block_count, start_lba, target_nqn, namespace_id
         );
 
         Ok(())
@@ -358,11 +349,7 @@ impl NvmeOfClient {
 
         trace!(
             "Namespace {} info: size={} blocks, block_size={}, capacity={}, utilization={}",
-            namespace_id,
-            size_blocks,
-            block_size,
-            capacity_blocks,
-            utilization_blocks
+            namespace_id, size_blocks, block_size, capacity_blocks, utilization_blocks
         );
 
         Ok(NamespaceInfo {
@@ -400,7 +387,10 @@ pub struct DiscoveredTarget {
 }
 
 /// Parse discovery log page into discovered targets
-fn parse_discovery_log(data: &Bytes, default_port: u16) -> NvmeOfBackendResult<Vec<DiscoveredTarget>> {
+fn parse_discovery_log(
+    data: &Bytes,
+    default_port: u16,
+) -> NvmeOfBackendResult<Vec<DiscoveredTarget>> {
     if data.len() < 16 {
         return Ok(Vec::new());
     }

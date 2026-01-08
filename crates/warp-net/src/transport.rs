@@ -651,7 +651,10 @@ impl MultiPathEndpoint {
 
     /// Create a new multi-path endpoint with custom capabilities (insecure, for testing)
     #[cfg(any(test, feature = "insecure-tls"))]
-    pub async fn new_with_caps(interfaces: Vec<LocalInterface>, caps: Capabilities) -> Result<Self> {
+    pub async fn new_with_caps(
+        interfaces: Vec<LocalInterface>,
+        caps: Capabilities,
+    ) -> Result<Self> {
         let rustls_config = client_config_insecure()?;
         let quinn_config = quinn::ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(rustls_config)
@@ -764,7 +767,11 @@ impl MultiPathEndpoint {
     ///
     /// Selects the first available enabled interface. For load balancing,
     /// use `connect_via` with explicit interface selection.
-    pub async fn connect(&self, remote_addr: SocketAddr, server_name: &str) -> Result<WarpConnection> {
+    pub async fn connect(
+        &self,
+        remote_addr: SocketAddr,
+        server_name: &str,
+    ) -> Result<WarpConnection> {
         // Use first available interface
         let local_ip = self
             .interfaces
@@ -881,7 +888,10 @@ mod tests {
     #[test]
     fn test_local_interface_creation() {
         let iface = LocalInterface::new("10.10.10.1".parse().unwrap());
-        assert_eq!(iface.bind_ip, "10.10.10.1".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(
+            iface.bind_ip,
+            "10.10.10.1".parse::<std::net::IpAddr>().unwrap()
+        );
         assert!(iface.enabled);
         assert!(iface.label.is_none());
         assert!(iface.capacity_bps.is_none());
@@ -894,7 +904,10 @@ mod tests {
             .with_capacity(10_000_000_000) // 10 Gbps
             .with_enabled(true);
 
-        assert_eq!(iface.bind_ip, "192.168.1.100".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(
+            iface.bind_ip,
+            "192.168.1.100".parse::<std::net::IpAddr>().unwrap()
+        );
         assert_eq!(iface.label, Some("eth0".to_string()));
         assert_eq!(iface.capacity_bps, Some(10_000_000_000));
         assert!(iface.enabled);
@@ -902,8 +915,7 @@ mod tests {
 
     #[test]
     fn test_local_interface_disabled() {
-        let iface = LocalInterface::new("10.0.0.1".parse().unwrap())
-            .with_enabled(false);
+        let iface = LocalInterface::new("10.0.0.1".parse().unwrap()).with_enabled(false);
 
         assert!(!iface.enabled);
     }
@@ -913,14 +925,16 @@ mod tests {
         let iface = LocalInterface::new("10.10.10.1".parse().unwrap());
         let bind_addr = iface.bind_addr();
 
-        assert_eq!(bind_addr.ip(), "10.10.10.1".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(
+            bind_addr.ip(),
+            "10.10.10.1".parse::<std::net::IpAddr>().unwrap()
+        );
         assert_eq!(bind_addr.port(), 0); // Ephemeral port
     }
 
     #[test]
     fn test_local_interface_display_with_label() {
-        let iface = LocalInterface::new("10.10.10.1".parse().unwrap())
-            .with_label("bond0");
+        let iface = LocalInterface::new("10.10.10.1".parse().unwrap()).with_label("bond0");
 
         assert_eq!(format!("{}", iface), "bond0(10.10.10.1)");
     }
@@ -934,8 +948,7 @@ mod tests {
 
     #[test]
     fn test_local_interface_ipv6() {
-        let iface = LocalInterface::new("::1".parse().unwrap())
-            .with_label("lo");
+        let iface = LocalInterface::new("::1".parse().unwrap()).with_label("lo");
 
         assert_eq!(iface.bind_ip, "::1".parse::<std::net::IpAddr>().unwrap());
         assert_eq!(format!("{}", iface), "lo(::1)");
@@ -964,9 +977,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_local_ips() {
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
         let ips = mp.local_ips();
@@ -992,9 +1003,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_get_interface() {
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
 
@@ -1030,10 +1039,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_no_enabled_interfaces_error() {
-        let interfaces = vec![
-            LocalInterface::new("10.10.10.1".parse().unwrap())
-                .with_enabled(false),
-        ];
+        let interfaces =
+            vec![LocalInterface::new("10.10.10.1".parse().unwrap()).with_enabled(false)];
 
         let result = MultiPathEndpoint::new(interfaces).await;
         assert!(result.is_err());
@@ -1048,16 +1055,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_add_interface() {
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
         assert_eq!(mp.enabled_interface_count(), 1);
 
         // Add another localhost variant (IPv6)
-        let new_iface = LocalInterface::new("::1".parse().unwrap())
-            .with_label("lo6");
+        let new_iface = LocalInterface::new("::1".parse().unwrap()).with_label("lo6");
 
         let result = mp.add_interface(new_iface).await;
         assert!(result.is_ok());
@@ -1068,15 +1072,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_add_duplicate_interface_error() {
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
 
         // Try to add duplicate
-        let duplicate = LocalInterface::new("127.0.0.1".parse().unwrap())
-            .with_label("lo-dup");
+        let duplicate = LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo-dup");
 
         let result = mp.add_interface(duplicate).await;
         assert!(result.is_err());
@@ -1111,9 +1112,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_remove_nonexistent() {
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mut mp = MultiPathEndpoint::new(interfaces).await.unwrap();
 
@@ -1123,18 +1122,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_multipath_endpoint_connect_via_invalid_interface() {
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
 
         // Try to connect via interface that doesn't exist
-        let result = mp.connect_via(
-            "10.10.10.1".parse().unwrap(),
-            "127.0.0.1:12345".parse().unwrap(),
-            "localhost",
-        ).await;
+        let result = mp
+            .connect_via(
+                "10.10.10.1".parse().unwrap(),
+                "127.0.0.1:12345".parse().unwrap(),
+                "localhost",
+            )
+            .await;
 
         assert!(result.is_err());
         match result {
@@ -1160,18 +1159,15 @@ mod tests {
         });
 
         // Create multi-path endpoint with localhost
-        let interfaces = vec![
-            LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo"),
-        ];
+        let interfaces = vec![LocalInterface::new("127.0.0.1".parse().unwrap()).with_label("lo")];
 
         let mp = MultiPathEndpoint::new(interfaces).await.unwrap();
 
         // Connect via specific interface
-        let conn = mp.connect_via(
-            "127.0.0.1".parse().unwrap(),
-            server_addr,
-            "localhost",
-        ).await.unwrap();
+        let conn = mp
+            .connect_via("127.0.0.1".parse().unwrap(), server_addr, "localhost")
+            .await
+            .unwrap();
 
         let params = conn.handshake().await.unwrap();
         assert_eq!(params.compression, "zstd");

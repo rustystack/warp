@@ -35,8 +35,7 @@ impl std::fmt::Display for TensorId {
 }
 
 /// Tensor data type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TensorDtype {
     /// 32-bit float
     #[default]
@@ -86,10 +85,8 @@ impl TensorDtype {
     }
 }
 
-
 /// Tensor memory layout
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TensorLayout {
     /// Row-major (C-style)
     #[default]
@@ -97,7 +94,6 @@ pub enum TensorLayout {
     /// Column-major (Fortran-style)
     ColumnMajor,
 }
-
 
 /// Tensor location
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

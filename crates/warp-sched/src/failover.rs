@@ -37,8 +37,13 @@ impl Default for FailoverConfig {
 
 impl FailoverConfig {
     /// Creates a new configuration with custom values.
-    #[must_use] 
-    pub const fn new(timeout_ms: u64, max_retries: u8, cooldown_ms: u64, health_threshold: f32) -> Self {
+    #[must_use]
+    pub const fn new(
+        timeout_ms: u64,
+        max_retries: u8,
+        cooldown_ms: u64,
+        health_threshold: f32,
+    ) -> Self {
         Self {
             timeout_ms,
             max_retries,
@@ -124,7 +129,7 @@ pub struct FailoverDecision {
 
 impl FailoverDecision {
     /// Creates a new failover decision.
-    #[must_use] 
+    #[must_use]
     pub fn new(
         chunk_id: ChunkId,
         reason: FailoverReason,
@@ -196,7 +201,7 @@ pub struct CpuFailoverManager {
 
 impl CpuFailoverManager {
     /// Creates a new CPU failover manager.
-    #[must_use] 
+    #[must_use]
     pub fn new(config: FailoverConfig) -> Self {
         Self {
             config,
@@ -269,7 +274,7 @@ impl CpuFailoverManager {
     }
 
     /// Makes a failover decision based on the failure context.
-    #[must_use] 
+    #[must_use]
     pub fn decide(
         &self,
         chunk_id: ChunkId,
@@ -310,7 +315,7 @@ impl CpuFailoverManager {
     }
 
     /// Returns current failover metrics.
-    #[must_use] 
+    #[must_use]
     pub const fn metrics(&self) -> FailoverMetrics {
         self.metrics
     }
@@ -455,7 +460,7 @@ pub struct FailoverManager {
 
 impl FailoverManager {
     /// Creates a new failover manager.
-    #[must_use] 
+    #[must_use]
     pub fn new(config: FailoverConfig) -> Self {
         Self {
             cpu: CpuFailoverManager::new(config),
@@ -478,7 +483,7 @@ impl FailoverManager {
     }
 
     /// Makes a failover decision.
-    #[must_use] 
+    #[must_use]
     pub fn decide(
         &self,
         chunk_id: ChunkId,
@@ -498,7 +503,7 @@ impl FailoverManager {
     }
 
     /// Returns current metrics.
-    #[must_use] 
+    #[must_use]
     pub const fn metrics(&self) -> FailoverMetrics {
         self.cpu.metrics()
     }

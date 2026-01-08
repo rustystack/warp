@@ -9,7 +9,9 @@
 use dashmap::DashMap;
 use std::net::SocketAddr;
 
-use crate::types::{EndpointPriority, PeerConfig, PeerEndpoint, PeerMetadata, PeerStatus, VirtualIp};
+use crate::types::{
+    EndpointPriority, PeerConfig, PeerEndpoint, PeerMetadata, PeerStatus, VirtualIp,
+};
 use crate::{PortalNetError, Result};
 
 /// Manages peer configurations and routing for the Portal mesh network
@@ -723,12 +725,7 @@ mod tests {
 
             // After each update, the peer should have this endpoint available
             let peer = manager.get_by_key(&config.public_key).unwrap();
-            assert!(
-                peer.config
-                    .endpoints
-                    .iter()
-                    .any(|ep| ep.addr == endpoint)
-            );
+            assert!(peer.config.endpoints.iter().any(|ep| ep.addr == endpoint));
         }
 
         // After roaming through 3 networks, we have 3 endpoints

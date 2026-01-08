@@ -288,10 +288,10 @@ impl PlacementEngine {
         if matches!(
             prediction.workload_type,
             WorkloadType::Training | WorkloadType::Inference
-        )
-            && node.has_gpu {
-                score += 40.0;
-            }
+        ) && node.has_gpu
+        {
+            score += 40.0;
+        }
 
         // Prefer higher bandwidth
         score += (node.bandwidth as f64 / 10_000_000_000.0) * 10.0; // 10 Gbps reference

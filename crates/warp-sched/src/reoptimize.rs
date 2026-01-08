@@ -76,7 +76,7 @@ pub struct Reassignment {
 
 impl Reassignment {
     /// Create a new reassignment
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         chunk_id: ChunkId,
         from_edge: EdgeIdx,
@@ -113,7 +113,7 @@ pub struct ReoptPlan {
 
 impl ReoptPlan {
     /// Create a new reoptimization plan
-    #[must_use] 
+    #[must_use]
     pub fn new(
         scope: ReoptScope,
         strategy: ReoptStrategy,
@@ -133,13 +133,13 @@ impl ReoptPlan {
     }
 
     /// Get the number of reassignments in the plan
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.reassignments.len()
     }
 
     /// Check if the plan is empty
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.reassignments.is_empty()
     }
@@ -171,7 +171,7 @@ impl Default for IncrementalConfig {
 
 impl IncrementalConfig {
     /// Create a new configuration
-    #[must_use] 
+    #[must_use]
     pub const fn new(
         max_reassignments_per_tick: usize,
         min_improvement_threshold: f64,
@@ -241,7 +241,7 @@ pub struct ReoptMetrics {
 
 impl ReoptMetrics {
     /// Create new metrics
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -255,10 +255,12 @@ impl ReoptMetrics {
         }
 
         let n = self.total_reopts as f64;
-        self.avg_improvement = (n - 1.0).mul_add(self.avg_improvement, plan.estimated_improvement) / n;
+        self.avg_improvement =
+            (n - 1.0).mul_add(self.avg_improvement, plan.estimated_improvement) / n;
         self.avg_disruption = (n - 1.0).mul_add(self.avg_disruption, plan.estimated_disruption) / n;
-        self.avg_execution_time_ms = (n - 1.0).mul_add(self.avg_execution_time_ms as f64, execution_time_ms as f64) as u64
-            / self.total_reopts;
+        self.avg_execution_time_ms =
+            (n - 1.0).mul_add(self.avg_execution_time_ms as f64, execution_time_ms as f64) as u64
+                / self.total_reopts;
     }
 
     /// Record an aborted reoptimization
@@ -305,7 +307,7 @@ pub struct IncrementalScheduler {
 
 impl IncrementalScheduler {
     /// Create a new incremental scheduler
-    #[must_use] 
+    #[must_use]
     pub fn new(config: IncrementalConfig) -> Self {
         Self {
             config,
@@ -315,7 +317,7 @@ impl IncrementalScheduler {
     }
 
     /// Plan reoptimization based on scope and strategy
-    #[must_use] 
+    #[must_use]
     pub fn plan_reopt(
         scope: ReoptScope,
         strategy: ReoptStrategy,
@@ -327,9 +329,7 @@ impl IncrementalScheduler {
 
         // Generate reassignments based on strategy
         let mut reassignments = match strategy {
-            ReoptStrategy::Greedy => {
-                Self::plan_greedy(&chunks_to_consider, current, costs)
-            }
+            ReoptStrategy::Greedy => Self::plan_greedy(&chunks_to_consider, current, costs),
             ReoptStrategy::MinDisruption => {
                 Self::plan_min_disruption(&chunks_to_consider, current, costs)
             }
@@ -385,7 +385,7 @@ impl IncrementalScheduler {
     }
 
     /// Estimate improvement for a single reassignment
-    #[must_use] 
+    #[must_use]
     pub fn estimate_improvement(reassignment: &Reassignment, costs: &CpuCostMatrix) -> f64 {
         let chunk_id = reassignment.chunk_id;
         let current_cost = costs
@@ -404,7 +404,7 @@ impl IncrementalScheduler {
     }
 
     /// Estimate total disruption for a plan
-    #[must_use] 
+    #[must_use]
     pub const fn estimate_disruption(plan: &ReoptPlan) -> f64 {
         plan.estimated_disruption
     }
@@ -450,13 +450,13 @@ impl IncrementalScheduler {
     }
 
     /// Get current state
-    #[must_use] 
+    #[must_use]
     pub const fn state(&self) -> &ReoptState {
         &self.state
     }
 
     /// Get metrics
-    #[must_use] 
+    #[must_use]
     pub const fn metrics(&self) -> &ReoptMetrics {
         &self.metrics
     }

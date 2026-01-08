@@ -19,7 +19,6 @@
 //!
 //! This module requires the `aws-events` feature to be enabled.
 
-
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -61,8 +60,7 @@ pub enum AwsEventError {
 }
 
 /// Configuration for AWS event destinations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AwsEventConfig {
     /// AWS region override (uses default if not set)
     pub region: Option<String>,
@@ -76,7 +74,6 @@ pub struct AwsEventConfig {
     /// Lambda function configuration
     pub lambda_config: Option<LambdaConfig>,
 }
-
 
 /// SNS-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,10 +182,10 @@ fn default_lambda_timeout_ms() -> u64 {
 #[cfg(feature = "aws-events")]
 mod aws_impl {
     use super::*;
+    use aws_sdk_lambda::Client as LambdaClient;
     use aws_sdk_lambda::primitives::Blob;
     use aws_sdk_sns::Client as SnsClient;
     use aws_sdk_sqs::Client as SqsClient;
-    use aws_sdk_lambda::Client as LambdaClient;
 
     /// AWS event destination clients.
     pub struct AwsEventClients {
@@ -261,7 +258,11 @@ mod aws_impl {
             let message_json = serde_json::to_string(&message)
                 .map_err(|e| AwsEventError::SerializationError(e.to_string()))?;
 
-            let sns_config = self.config.sns_config.as_ref().unwrap_or(&SnsConfig::default());
+            let sns_config = self
+                .config
+                .sns_config
+                .as_ref()
+                .unwrap_or(&SnsConfig::default());
             let mut last_error = None;
 
             for attempt in 1..=sns_config.max_retries {
@@ -341,7 +342,11 @@ mod aws_impl {
             let message_json = serde_json::to_string(&message)
                 .map_err(|e| AwsEventError::SerializationError(e.to_string()))?;
 
-            let sqs_config = self.config.sqs_config.as_ref().unwrap_or(&SqsConfig::default());
+            let sqs_config = self
+                .config
+                .sqs_config
+                .as_ref()
+                .unwrap_or(&SqsConfig::default());
             let mut last_error = None;
 
             for attempt in 1..=sqs_config.max_retries {
@@ -705,7 +710,9 @@ mod tests {
 
         // In stub mode, this should succeed
         let event = create_test_event();
-        let result = clients.publish_to_sns("arn:aws:sns:us-east-1:123456789:test", &event).await;
+        let result = clients
+            .publish_to_sns("arn:aws:sns:us-east-1:123456789:test", &event)
+            .await;
         assert!(result.is_ok());
     }
 
@@ -757,7 +764,10 @@ mod tests {
 
         let event = create_test_event();
         let result = clients
-            .invoke_lambda("arn:aws:lambda:us-east-1:123456789012:function:test-function", &event)
+            .invoke_lambda(
+                "arn:aws:lambda:us-east-1:123456789012:function:test-function",
+                &event,
+            )
             .await;
 
         assert!(result.is_ok());

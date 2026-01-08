@@ -185,10 +185,7 @@ impl VirtualFilesystem {
 
     /// Save an inode to storage
     pub async fn save_inode(&self, meta: &InodeMetadata) -> Result<()> {
-        let key = ObjectKey::new(
-            &self.bucket,
-            format!("{}/inodes/{}", META_PREFIX, meta.ino),
-        )?;
+        let key = ObjectKey::new(&self.bucket, format!("{}/inodes/{}", META_PREFIX, meta.ino))?;
         let data = ObjectData::from(meta.to_bytes()?);
         self.store.put(&key, data).await?;
         Ok(())

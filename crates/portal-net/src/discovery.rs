@@ -82,7 +82,7 @@ pub enum DiscoveryEvent {
     /// A peer was lost (no longer responding)
     PeerLost {
         /// `WireGuard` public key of the lost peer
-        public_key: [u8; 32]
+        public_key: [u8; 32],
     },
 }
 

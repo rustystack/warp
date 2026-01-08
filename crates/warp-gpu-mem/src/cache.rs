@@ -13,8 +13,7 @@ use crate::tensor::{TensorHandle, TensorId};
 pub use crate::config::CacheConfig;
 
 /// Eviction policy
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvictionPolicy {
     /// Least Recently Used
     Lru,
@@ -26,7 +25,6 @@ pub enum EvictionPolicy {
     /// Gradient-aware (prefer evicting activations)
     GradientAware,
 }
-
 
 /// Cache entry
 struct CacheEntry {

@@ -14,8 +14,8 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -25,8 +25,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace, warn};
 
 use super::{PeerLocation, StorageMessage, Tier, TierStats};
-use crate::error::{Error, Result};
 use crate::ObjectKey;
+use crate::error::{Error, Result};
 
 /// RDMA transport configuration
 #[derive(Debug, Clone)]
@@ -180,14 +180,20 @@ impl RdmaEndpoint {
     }
 
     fn record_send(&self, bytes: usize) {
-        self.stats.bytes_sent.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.stats
+            .bytes_sent
+            .fetch_add(bytes as u64, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
     }
 
     fn record_recv(&self, bytes: usize, latency_us: u64) {
-        self.stats.bytes_recv.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.stats
+            .bytes_recv
+            .fetch_add(bytes as u64, Ordering::Relaxed);
         self.stats.messages_recv.fetch_add(1, Ordering::Relaxed);
-        self.stats.latency_sum_us.fetch_add(latency_us, Ordering::Relaxed);
+        self.stats
+            .latency_sum_us
+            .fetch_add(latency_us, Ordering::Relaxed);
         self.stats.latency_count.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -328,7 +334,8 @@ impl RdmaTransport {
             // 3. Implement a custom SafeSend wrapper
 
             endpoint.record_send(data.len());
-            self.total_bytes_sent.fetch_add(data.len() as u64, Ordering::Relaxed);
+            self.total_bytes_sent
+                .fetch_add(data.len() as u64, Ordering::Relaxed);
 
             trace!(
                 peer_id = %endpoint.peer_id,
@@ -348,7 +355,8 @@ impl RdmaTransport {
             return Err(Error::Transport("Endpoint not connected".into()));
         }
         endpoint.record_send(data.len());
-        self.total_bytes_sent.fetch_add(data.len() as u64, Ordering::Relaxed);
+        self.total_bytes_sent
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
         trace!(peer_id = %endpoint.peer_id, bytes = data.len(), "RDMA send complete (simulated)");
         Ok(())
     }
@@ -372,7 +380,8 @@ impl RdmaTransport {
 
             let latency_us = start.elapsed().as_micros() as u64;
             endpoint.record_recv(len, latency_us);
-            self.total_bytes_recv.fetch_add(len as u64, Ordering::Relaxed);
+            self.total_bytes_recv
+                .fetch_add(len as u64, Ordering::Relaxed);
 
             trace!(
                 peer_id = %endpoint.peer_id,
@@ -397,7 +406,11 @@ impl RdmaTransport {
     }
 
     /// Send a storage message
-    pub async fn send_message(&self, endpoint: &Arc<RdmaEndpoint>, msg: &StorageMessage) -> Result<()> {
+    pub async fn send_message(
+        &self,
+        endpoint: &Arc<RdmaEndpoint>,
+        msg: &StorageMessage,
+    ) -> Result<()> {
         let data = self.serialize_message(msg)?;
         self.send(endpoint, &data).await
     }
@@ -439,16 +452,16 @@ impl RdmaTransport {
         }
 
         TierStats {
-            messages_sent: self.endpoints.iter()
-                .map(|e| e.stats().messages_sent)
-                .sum(),
-            messages_recv: self.endpoints.iter()
-                .map(|e| e.stats().messages_recv)
-                .sum(),
+            messages_sent: self.endpoints.iter().map(|e| e.stats().messages_sent).sum(),
+            messages_recv: self.endpoints.iter().map(|e| e.stats().messages_recv).sum(),
             bytes_sent: self.total_bytes_sent.load(Ordering::Relaxed),
             bytes_recv: self.total_bytes_recv.load(Ordering::Relaxed),
             active_connections: active,
-            avg_latency_us: if total_count > 0 { total_latency / total_count } else { 0 },
+            avg_latency_us: if total_count > 0 {
+                total_latency / total_count
+            } else {
+                0
+            },
         }
     }
 
@@ -472,11 +485,7 @@ impl RdmaTransport {
 }
 
 /// Select optimal transport for a peer based on locality
-pub fn select_transport(
-    local: &PeerLocation,
-    remote: &PeerLocation,
-    rdma_available: bool,
-) -> Tier {
+pub fn select_transport(local: &PeerLocation, remote: &PeerLocation, rdma_available: bool) -> Tier {
     let tier = remote.optimal_tier(local);
 
     // If Tier2 is selected but RDMA isn't available, fall back to Tier3
@@ -520,20 +529,14 @@ mod tests {
 
     #[test]
     fn test_rdma_endpoint_creation() {
-        let endpoint = RdmaEndpoint::new(
-            "peer-1".to_string(),
-            "10.0.0.1:9000".parse().unwrap(),
-        );
+        let endpoint = RdmaEndpoint::new("peer-1".to_string(), "10.0.0.1:9000".parse().unwrap());
         assert_eq!(endpoint.peer_id, "peer-1");
         assert_eq!(endpoint.state(), RdmaConnectionState::Disconnected);
     }
 
     #[test]
     fn test_rdma_endpoint_stats() {
-        let endpoint = RdmaEndpoint::new(
-            "peer-1".to_string(),
-            "10.0.0.1:9000".parse().unwrap(),
-        );
+        let endpoint = RdmaEndpoint::new("peer-1".to_string(), "10.0.0.1:9000".parse().unwrap());
 
         endpoint.record_send(1000);
         endpoint.record_recv(2000, 50);
@@ -558,10 +561,8 @@ mod tests {
         let config = RdmaTransportConfig::default();
         let transport = RdmaTransport::new("local-1".to_string(), config);
 
-        let endpoint = transport.add_endpoint(
-            "peer-1".to_string(),
-            "10.0.0.1:9000".parse().unwrap(),
-        );
+        let endpoint =
+            transport.add_endpoint("peer-1".to_string(), "10.0.0.1:9000".parse().unwrap());
         assert!(transport.get_endpoint("peer-1").is_some());
 
         transport.remove_endpoint("peer-1");
@@ -617,10 +618,8 @@ mod tests {
         let config = RdmaTransportConfig::default();
         let transport = RdmaTransport::new("local-1".to_string(), config);
 
-        let endpoint = transport.add_endpoint(
-            "peer-1".to_string(),
-            "10.0.0.1:9000".parse().unwrap(),
-        );
+        let endpoint =
+            transport.add_endpoint("peer-1".to_string(), "10.0.0.1:9000".parse().unwrap());
 
         assert!(!endpoint.is_connected());
         transport.connect(&endpoint).await.unwrap();

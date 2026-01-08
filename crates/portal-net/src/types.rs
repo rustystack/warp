@@ -364,7 +364,11 @@ impl PeerConfig {
 
     /// Creates a new peer configuration with a single endpoint
     #[must_use]
-    pub fn with_endpoint(public_key: [u8; 32], virtual_ip: VirtualIp, endpoint: SocketAddr) -> Self {
+    pub fn with_endpoint(
+        public_key: [u8; 32],
+        virtual_ip: VirtualIp,
+        endpoint: SocketAddr,
+    ) -> Self {
         Self {
             public_key,
             virtual_ip,
@@ -539,7 +543,7 @@ pub enum NetworkEvent {
     /// A peer has left the network
     PeerLeft {
         /// WireGuard public key of the peer that left
-        public_key: [u8; 32]
+        public_key: [u8; 32],
     },
 
     /// A peer's endpoint has been updated

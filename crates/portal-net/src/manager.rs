@@ -17,7 +17,9 @@ use warp_net::{WarpConnection, WarpEndpoint};
 use crate::allocator::{BitmapAllocator, IpAllocator};
 use crate::discovery::MdnsDiscovery;
 use crate::peer::PeerManager;
-use crate::types::{NetworkConfig, NetworkEvent, PeerConfig, PeerEndpoint, PeerMetadata, PeerStatus, VirtualIp};
+use crate::types::{
+    NetworkConfig, NetworkEvent, PeerConfig, PeerEndpoint, PeerMetadata, PeerStatus, VirtualIp,
+};
 use crate::{PortalNetError, Result};
 
 /// Current network state
@@ -43,12 +45,12 @@ pub enum ConnectionRoute {
     /// Direct P2P connection available
     Direct {
         /// The socket address of the peer endpoint
-        endpoint: SocketAddr
+        endpoint: SocketAddr,
     },
     /// Relayed through Hub
     Relayed {
         /// The socket address of the hub relay server
-        via_hub: SocketAddr
+        via_hub: SocketAddr,
     },
     /// Peer is unavailable
     Unavailable,
@@ -245,9 +247,10 @@ impl NetworkManager {
     pub async fn connect_to(&self, target: &[u8; 32]) -> Result<ConnectionRoute> {
         let state = self.state.read().await;
 
-        state.peer_manager.get_by_key(target).map_or(
-            Ok(ConnectionRoute::Unavailable),
-            |peer| {
+        state
+            .peer_manager
+            .get_by_key(target)
+            .map_or(Ok(ConnectionRoute::Unavailable), |peer| {
                 // Prefer direct P2P if endpoint is known
                 if let Some(endpoint) = peer.config.endpoint() {
                     Ok(ConnectionRoute::Direct { endpoint })
@@ -257,8 +260,7 @@ impl NetworkManager {
                         via_hub: state.hub_endpoint,
                     })
                 }
-            },
-        )
+            })
     }
 
     /// Sends data to a peer using best available path
@@ -297,9 +299,9 @@ impl NetworkManager {
                     })?;
 
                     // Perform handshake
-                    conn.handshake().await.map_err(|e| {
-                        PortalNetError::Transport(format!("Handshake failed: {e}"))
-                    })?;
+                    conn.handshake()
+                        .await
+                        .map_err(|e| PortalNetError::Transport(format!("Handshake failed: {e}")))?;
 
                     // Send the data
                     conn.send_chunk(0, Bytes::copy_from_slice(data))
@@ -422,11 +424,7 @@ impl NetworkManager {
     /// # Errors
     ///
     /// Returns an error if endpoint addition fails
-    pub async fn add_peer_endpoint(
-        &self,
-        key: &[u8; 32],
-        endpoint: PeerEndpoint,
-    ) -> Result<()> {
+    pub async fn add_peer_endpoint(&self, key: &[u8; 32], endpoint: PeerEndpoint) -> Result<()> {
         let state = self.state.read().await;
         state.peer_manager.add_endpoint(key, endpoint.clone())?;
 

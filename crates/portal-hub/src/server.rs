@@ -71,9 +71,7 @@ impl HubServer {
             .await
             .map_err(crate::Error::Io)?;
 
-        axum::serve(listener, app)
-            .await
-            .map_err(crate::Error::Io)?;
+        axum::serve(listener, app).await.map_err(crate::Error::Io)?;
 
         Ok(())
     }

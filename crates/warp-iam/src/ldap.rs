@@ -183,12 +183,9 @@ impl LdapProvider {
         let settings = ldap3::LdapConnSettings::new()
             .set_conn_timeout(std::time::Duration::from_secs(self.config.timeout_seconds));
 
-        let (ldap_conn, mut ldap) = ldap3::LdapConnAsync::with_settings(
-            settings,
-            &self.config.url,
-        )
-        .await
-        .map_err(|e| Error::Ldap(format!("Connection failed: {}", e)))?;
+        let (ldap_conn, mut ldap) = ldap3::LdapConnAsync::with_settings(settings, &self.config.url)
+            .await
+            .map_err(|e| Error::Ldap(format!("Connection failed: {}", e)))?;
 
         ldap3::drive!(ldap_conn);
 
@@ -215,7 +212,9 @@ impl LdapProvider {
     }
 
     /// Get a connection for operations
-    async fn get_connection(&self) -> Result<tokio::sync::RwLockWriteGuard<'_, Option<ldap3::Ldap>>> {
+    async fn get_connection(
+        &self,
+    ) -> Result<tokio::sync::RwLockWriteGuard<'_, Option<ldap3::Ldap>>> {
         self.ensure_connection().await?;
         Ok(self.connection.write().await)
     }
@@ -225,12 +224,9 @@ impl LdapProvider {
         let settings = ldap3::LdapConnSettings::new()
             .set_conn_timeout(std::time::Duration::from_secs(self.config.timeout_seconds));
 
-        let (ldap_conn, mut ldap) = ldap3::LdapConnAsync::with_settings(
-            settings,
-            &self.config.url,
-        )
-        .await
-        .map_err(|e| Error::Ldap(format!("Connection failed: {}", e)))?;
+        let (ldap_conn, mut ldap) = ldap3::LdapConnAsync::with_settings(settings, &self.config.url)
+            .await
+            .map_err(|e| Error::Ldap(format!("Connection failed: {}", e)))?;
 
         ldap3::drive!(ldap_conn);
 
@@ -247,10 +243,15 @@ impl LdapProvider {
     #[instrument(skip(self))]
     async fn search_user(&self, username: &str) -> Result<Option<(String, LdapUserEntry)>> {
         let mut conn_guard = self.get_connection().await?;
-        let ldap = conn_guard.as_mut().ok_or_else(|| Error::Ldap("No connection".to_string()))?;
+        let ldap = conn_guard
+            .as_mut()
+            .ok_or_else(|| Error::Ldap("No connection".to_string()))?;
 
         // Build search filter
-        let filter = self.config.user_filter.replace("{username}", &ldap3::ldap_escape(username));
+        let filter = self
+            .config
+            .user_filter
+            .replace("{username}", &ldap3::ldap_escape(username));
 
         let attrs = vec![
             &self.config.user_id_attr,
@@ -263,12 +264,7 @@ impl LdapProvider {
         debug!(base = %self.config.base_dn, filter = %filter, "Searching for user");
 
         let (entries, _result) = ldap
-            .search(
-                &self.config.base_dn,
-                ldap3::Scope::Subtree,
-                &filter,
-                attrs,
-            )
+            .search(&self.config.base_dn, ldap3::Scope::Subtree, &filter, attrs)
             .await
             .map_err(|e| Error::Ldap(format!("User search failed: {}", e)))?
             .success()
@@ -286,7 +282,9 @@ impl LdapProvider {
             id: get_first_attr(&entry, &self.config.user_id_attr).unwrap_or_default(),
             name: get_first_attr(&entry, &self.config.user_name_attr).unwrap_or_default(),
             email: get_first_attr(&entry, &self.config.user_email_attr),
-            groups: entry.attrs.get(&self.config.user_groups_attr)
+            groups: entry
+                .attrs
+                .get(&self.config.user_groups_attr)
                 .cloned()
                 .unwrap_or_default(),
         };
@@ -300,7 +298,9 @@ impl LdapProvider {
     #[instrument(skip(self))]
     async fn search_group(&self, group_id: &str) -> Result<Option<LdapGroupEntry>> {
         let mut conn_guard = self.get_connection().await?;
-        let ldap = conn_guard.as_mut().ok_or_else(|| Error::Ldap("No connection".to_string()))?;
+        let ldap = conn_guard
+            .as_mut()
+            .ok_or_else(|| Error::Ldap("No connection".to_string()))?;
 
         let filter = format!(
             "(&{}({}={}))",
@@ -339,7 +339,9 @@ impl LdapProvider {
             id: get_first_attr(&entry, &self.config.group_id_attr).unwrap_or_default(),
             name: get_first_attr(&entry, &self.config.group_name_attr).unwrap_or_default(),
             description: get_first_attr(&entry, "description"),
-            members: entry.attrs.get(&self.config.group_member_attr)
+            members: entry
+                .attrs
+                .get(&self.config.group_member_attr)
                 .cloned()
                 .unwrap_or_default(),
         }))
@@ -349,7 +351,9 @@ impl LdapProvider {
     #[instrument(skip(self))]
     async fn get_groups_for_user_dn(&self, user_dn: &str) -> Result<Vec<LdapGroupEntry>> {
         let mut conn_guard = self.get_connection().await?;
-        let ldap = conn_guard.as_mut().ok_or_else(|| Error::Ldap("No connection".to_string()))?;
+        let ldap = conn_guard
+            .as_mut()
+            .ok_or_else(|| Error::Ldap("No connection".to_string()))?;
 
         let filter = format!(
             "(&{}({}={}))",
@@ -386,7 +390,9 @@ impl LdapProvider {
                     id: get_first_attr(&entry, &self.config.group_id_attr).unwrap_or_default(),
                     name: get_first_attr(&entry, &self.config.group_name_attr).unwrap_or_default(),
                     description: get_first_attr(&entry, "description"),
-                    members: entry.attrs.get(&self.config.group_member_attr)
+                    members: entry
+                        .attrs
+                        .get(&self.config.group_member_attr)
                         .cloned()
                         .unwrap_or_default(),
                 }
@@ -440,9 +446,7 @@ struct LdapGroupEntry {
 /// Get first attribute value from a search entry
 #[cfg(feature = "ldap")]
 fn get_first_attr(entry: &ldap3::SearchEntry, attr: &str) -> Option<String> {
-    entry.attrs.get(attr)
-        .and_then(|v| v.first())
-        .cloned()
+    entry.attrs.get(attr).and_then(|v| v.first()).cloned()
 }
 
 /// Extract CN from a DN (e.g., "cn=admins,ou=groups,dc=example,dc=com" -> "admins")
@@ -450,7 +454,10 @@ fn get_first_attr(entry: &ldap3::SearchEntry, attr: &str) -> Option<String> {
 fn extract_cn_from_dn(dn: &str) -> Option<String> {
     for part in dn.split(',') {
         let part = part.trim();
-        if let Some(cn) = part.strip_prefix("cn=").or_else(|| part.strip_prefix("CN=")) {
+        if let Some(cn) = part
+            .strip_prefix("cn=")
+            .or_else(|| part.strip_prefix("CN="))
+        {
             return Some(cn.to_string());
         }
     }
@@ -473,13 +480,10 @@ impl IdentityProvider for LdapProvider {
         match credentials {
             Credentials::Password { username, password } => {
                 // First, search for the user to get their DN
-                let (user_dn, user_entry) = self
-                    .search_user(username)
-                    .await?
-                    .ok_or_else(|| {
-                        warn!(username = %username, "User not found in LDAP");
-                        Error::AuthenticationFailed("Invalid username or password".to_string())
-                    })?;
+                let (user_dn, user_entry) = self.search_user(username).await?.ok_or_else(|| {
+                    warn!(username = %username, "User not found in LDAP");
+                    Error::AuthenticationFailed("Invalid username or password".to_string())
+                })?;
 
                 // Create a fresh connection for authentication
                 let mut auth_ldap = self.create_auth_connection().await?;
@@ -508,7 +512,9 @@ impl IdentityProvider for LdapProvider {
                 // Get groups from memberOf attribute or by searching
                 let groups = if !user_entry.groups.is_empty() {
                     // Extract group names from memberOf DNs
-                    user_entry.groups.iter()
+                    user_entry
+                        .groups
+                        .iter()
                         .filter_map(|dn| extract_cn_from_dn(dn))
                         .collect()
                 } else {
@@ -544,7 +550,9 @@ impl IdentityProvider for LdapProvider {
         if let Some((user_dn, user_entry)) = result {
             // Get groups
             let groups = if !user_entry.groups.is_empty() {
-                user_entry.groups.iter()
+                user_entry
+                    .groups
+                    .iter()
                     .filter_map(|dn| extract_cn_from_dn(dn))
                     .collect()
             } else {
@@ -642,9 +650,7 @@ impl LdapProvider {
 
     /// Health check
     pub async fn health_check(&self) -> Result<bool> {
-        Err(Error::Ldap(
-            "LDAP requires the 'ldap' feature".to_string(),
-        ))
+        Err(Error::Ldap("LDAP requires the 'ldap' feature".to_string()))
     }
 }
 
@@ -660,9 +666,7 @@ impl IdentityProvider for LdapProvider {
     }
 
     async fn authenticate(&self, _credentials: &Credentials) -> Result<Identity> {
-        Err(Error::Ldap(
-            "LDAP requires the 'ldap' feature".to_string(),
-        ))
+        Err(Error::Ldap("LDAP requires the 'ldap' feature".to_string()))
     }
 
     async fn validate_token(&self, _token: &str) -> Result<Identity> {
@@ -678,21 +682,15 @@ impl IdentityProvider for LdapProvider {
     }
 
     async fn get_user(&self, _user_id: &str) -> Result<Option<Identity>> {
-        Err(Error::Ldap(
-            "LDAP requires the 'ldap' feature".to_string(),
-        ))
+        Err(Error::Ldap("LDAP requires the 'ldap' feature".to_string()))
     }
 
     async fn get_user_groups(&self, _user_id: &str) -> Result<Vec<Group>> {
-        Err(Error::Ldap(
-            "LDAP requires the 'ldap' feature".to_string(),
-        ))
+        Err(Error::Ldap("LDAP requires the 'ldap' feature".to_string()))
     }
 
     async fn get_group(&self, _group_id: &str) -> Result<Option<Group>> {
-        Err(Error::Ldap(
-            "LDAP requires the 'ldap' feature".to_string(),
-        ))
+        Err(Error::Ldap("LDAP requires the 'ldap' feature".to_string()))
     }
 }
 
@@ -711,10 +709,8 @@ mod tests {
 
     #[test]
     fn test_ldap_config_active_directory() {
-        let config = LdapConfig::active_directory(
-            "ldaps://ad.example.com:636",
-            "dc=example,dc=com",
-        );
+        let config =
+            LdapConfig::active_directory("ldaps://ad.example.com:636", "dc=example,dc=com");
         assert_eq!(config.id, "ad");
         assert_eq!(config.user_filter, "(sAMAccountName={username})");
         assert_eq!(config.user_id_attr, "sAMAccountName");
@@ -722,10 +718,7 @@ mod tests {
 
     #[test]
     fn test_ldap_config_openldap() {
-        let config = LdapConfig::openldap(
-            "ldap://ldap.example.com:389",
-            "dc=example,dc=com",
-        );
+        let config = LdapConfig::openldap("ldap://ldap.example.com:389", "dc=example,dc=com");
         assert_eq!(config.id, "openldap");
         assert_eq!(config.user_filter, "(uid={username})");
         assert_eq!(config.group_base_dn, "ou=groups,dc=example,dc=com");
@@ -733,9 +726,12 @@ mod tests {
 
     #[test]
     fn test_ldap_config_with_bind() {
-        let config = LdapConfig::default()
-            .with_bind_credentials("cn=admin,dc=example,dc=com", "secret");
-        assert_eq!(config.bind_dn, Some("cn=admin,dc=example,dc=com".to_string()));
+        let config =
+            LdapConfig::default().with_bind_credentials("cn=admin,dc=example,dc=com", "secret");
+        assert_eq!(
+            config.bind_dn,
+            Some("cn=admin,dc=example,dc=com".to_string())
+        );
         assert_eq!(config.bind_password, Some("secret".to_string()));
     }
 
@@ -776,10 +772,12 @@ mod tests {
         let config = LdapConfig::default();
         let provider = LdapProvider::new(config).await.unwrap();
 
-        let result = provider.authenticate(&Credentials::Password {
-            username: "test".to_string(),
-            password: "test".to_string(),
-        }).await;
+        let result = provider
+            .authenticate(&Credentials::Password {
+                username: "test".to_string(),
+                password: "test".to_string(),
+            })
+            .await;
         assert!(matches!(result, Err(Error::Ldap(_))));
 
         let result = provider.get_user("test").await;

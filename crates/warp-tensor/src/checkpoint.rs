@@ -88,7 +88,7 @@ impl Checkpoint {
     }
 
     /// Create from metadata (for lazy loading)
-    #[must_use] 
+    #[must_use]
     pub fn from_meta(meta: CheckpointMeta) -> Self {
         let lazy_tensors: HashMap<String, LazyTensor> = meta
             .tensors
@@ -118,37 +118,37 @@ impl Checkpoint {
     }
 
     /// Get a tensor by name
-    #[must_use] 
+    #[must_use]
     pub fn get_tensor(&self, name: &str) -> Option<&TensorData> {
         self.tensors.get(name)
     }
 
     /// Get tensor metadata by name
-    #[must_use] 
+    #[must_use]
     pub fn get_tensor_meta(&self, name: &str) -> Option<&TensorMeta> {
         self.meta.tensors.get(name)
     }
 
     /// Check if tensor is loaded
-    #[must_use] 
+    #[must_use]
     pub fn is_tensor_loaded(&self, name: &str) -> bool {
         self.tensors.contains_key(name)
     }
 
     /// Get list of tensor names
-    #[must_use] 
+    #[must_use]
     pub fn tensor_names(&self) -> &[String] {
         &self.meta.tensor_names
     }
 
     /// Get number of tensors
-    #[must_use] 
+    #[must_use]
     pub fn tensor_count(&self) -> usize {
         self.meta.tensor_names.len()
     }
 
     /// Get total size
-    #[must_use] 
+    #[must_use]
     pub fn total_size(&self) -> u64 {
         self.meta.total_size
     }
@@ -159,7 +159,7 @@ impl Checkpoint {
     }
 
     /// Get all loaded tensors
-    #[must_use] 
+    #[must_use]
     pub fn tensors(&self) -> &HashMap<String, TensorData> {
         &self.tensors
     }
@@ -220,7 +220,7 @@ impl CheckpointBuilder {
     }
 
     /// Build the checkpoint
-    #[must_use] 
+    #[must_use]
     pub fn build(self) -> Checkpoint {
         let mut checkpoint = Checkpoint::new(self.name);
         checkpoint.meta.parent = self.parent;
@@ -246,7 +246,7 @@ pub struct CheckpointManager {
 
 impl CheckpointManager {
     /// Create a new checkpoint manager
-    #[must_use] 
+    #[must_use]
     pub fn new(config: TensorConfig) -> Self {
         Self {
             config,
@@ -355,13 +355,13 @@ pub struct CheckpointDiff {
 
 impl CheckpointDiff {
     /// Check if checkpoints are identical
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty() && self.modified.is_empty()
     }
 
     /// Get total number of changes
-    #[must_use] 
+    #[must_use]
     pub fn change_count(&self) -> usize {
         self.added.len() + self.removed.len() + self.modified.len()
     }

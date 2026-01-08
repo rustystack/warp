@@ -163,7 +163,7 @@ mod tests {
 
 #[cfg(test)]
 mod proptest_tests {
-    use super::{calculate_entropy, Strategy as CompressionStrategy};
+    use super::{Strategy as CompressionStrategy, calculate_entropy};
     use proptest::prelude::*;
 
     proptest! {

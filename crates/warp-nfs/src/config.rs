@@ -7,8 +7,7 @@ use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 /// Security flavor for NFS authentication
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SecurityFlavor {
     /// AUTH_SYS (traditional UNIX authentication)
     #[default]
@@ -21,10 +20,8 @@ pub enum SecurityFlavor {
     Krb5p,
 }
 
-
 /// UID/GID squashing mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SquashMode {
     /// No squashing
     None,
@@ -34,7 +31,6 @@ pub enum SquashMode {
     /// Squash all UIDs to anonymous
     AllSquash,
 }
-
 
 /// NFS export configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

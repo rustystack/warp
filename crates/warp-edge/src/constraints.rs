@@ -30,7 +30,7 @@ pub struct BatteryConstraints {
 
 impl BatteryConstraints {
     /// Creates new battery constraints with current level and charging state
-    #[must_use] 
+    #[must_use]
     pub fn new(level: u8, is_charging: bool) -> Self {
         Self {
             min_battery_upload: 20,
@@ -41,13 +41,13 @@ impl BatteryConstraints {
     }
 
     /// Checks if uploads are allowed based on current battery state
-    #[must_use] 
+    #[must_use]
     pub const fn can_upload(&self) -> bool {
         self.is_charging || self.current_level >= self.min_battery_upload
     }
 
     /// Checks if downloads are allowed based on current battery state
-    #[must_use] 
+    #[must_use]
     pub const fn can_download(&self) -> bool {
         self.is_charging || self.current_level >= self.min_battery_download
     }
@@ -71,7 +71,7 @@ pub struct TimeWindow {
 
 impl TimeWindow {
     /// Creates a new time window
-    #[must_use] 
+    #[must_use]
     pub fn new(day: u8, start: u8, end: u8, allow: bool) -> Self {
         Self {
             day_of_week: day.min(6),
@@ -82,7 +82,7 @@ impl TimeWindow {
     }
 
     /// Checks if current time is within this window
-    #[must_use] 
+    #[must_use]
     pub fn is_active_now(&self) -> bool {
         use chrono::prelude::*;
 
@@ -126,7 +126,7 @@ pub struct ResourceConstraints {
 
 impl ResourceConstraints {
     /// Creates constraints for unlimited edge (typically servers)
-    #[must_use] 
+    #[must_use]
     pub fn new_unlimited() -> Self {
         Self {
             max_storage_bytes: None,
@@ -140,7 +140,7 @@ impl ResourceConstraints {
     }
 
     /// Creates constraints for mobile device with daily bandwidth limit in MB
-    #[must_use] 
+    #[must_use]
     pub fn new_mobile(max_daily_mb: u64) -> Self {
         Self {
             max_storage_bytes: None,
@@ -154,7 +154,7 @@ impl ResourceConstraints {
     }
 
     /// Creates constraints for metered connection with daily bandwidth limit in MB
-    #[must_use] 
+    #[must_use]
     pub fn new_metered(max_daily_mb: u64) -> Self {
         Self {
             max_storage_bytes: None,
@@ -168,7 +168,7 @@ impl ResourceConstraints {
     }
 
     /// Checks if a transfer of given size is allowed
-    #[must_use] 
+    #[must_use]
     pub const fn can_transfer(&self, bytes: u64) -> bool {
         if let Some(max_bandwidth) = self.max_daily_bandwidth {
             if self.daily_bandwidth_used + bytes > max_bandwidth {
@@ -179,7 +179,7 @@ impl ResourceConstraints {
     }
 
     /// Checks if current time is allowed for operations
-    #[must_use] 
+    #[must_use]
     pub fn is_time_allowed(&self) -> bool {
         if self.time_windows.is_empty() {
             return true;
@@ -211,14 +211,14 @@ impl ResourceConstraints {
     }
 
     /// Returns remaining daily bandwidth in bytes
-    #[must_use] 
+    #[must_use]
     pub fn daily_remaining(&self) -> Option<u64> {
         self.max_daily_bandwidth
             .map(|max| max.saturating_sub(self.daily_bandwidth_used))
     }
 
     /// Checks if daily bandwidth counter should be reset
-    #[must_use] 
+    #[must_use]
     pub fn should_reset_daily(&self) -> bool {
         SystemTime::now() >= self.daily_reset_at
     }
@@ -240,7 +240,7 @@ pub struct ConstraintTracker {
 
 impl ConstraintTracker {
     /// Creates a new empty constraint tracker
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             constraints: DashMap::new(),
@@ -253,7 +253,7 @@ impl ConstraintTracker {
     }
 
     /// Updates battery state for an edge
-    #[must_use] 
+    #[must_use]
     pub fn update_battery(&self, edge: &EdgeId, battery: BatteryConstraints) -> bool {
         if let Some(mut entry) = self.constraints.get_mut(edge) {
             entry.battery = Some(battery);
@@ -264,7 +264,7 @@ impl ConstraintTracker {
     }
 
     /// Updates metered connection status for an edge
-    #[must_use] 
+    #[must_use]
     pub fn update_metered(&self, edge: &EdgeId, is_metered: bool) -> bool {
         if let Some(mut entry) = self.constraints.get_mut(edge) {
             entry.is_metered = is_metered;
@@ -275,7 +275,7 @@ impl ConstraintTracker {
     }
 
     /// Checks if an edge can perform an upload of given size
-    #[must_use] 
+    #[must_use]
     pub fn can_upload(&self, edge: &EdgeId, bytes: u64) -> bool {
         if let Some(entry) = self.constraints.get(edge) {
             if !entry.can_transfer(bytes) {
@@ -294,7 +294,7 @@ impl ConstraintTracker {
     }
 
     /// Checks if an edge can perform a download of given size
-    #[must_use] 
+    #[must_use]
     pub fn can_download(&self, edge: &EdgeId, bytes: u64) -> bool {
         if let Some(entry) = self.constraints.get(edge) {
             if !entry.can_transfer(bytes) {
@@ -313,7 +313,7 @@ impl ConstraintTracker {
     }
 
     /// Checks if an edge is available for operations
-    #[must_use] 
+    #[must_use]
     pub fn is_available(&self, edge: &EdgeId) -> bool {
         if let Some(entry) = self.constraints.get(edge) {
             if !entry.is_time_allowed() {
@@ -329,7 +329,7 @@ impl ConstraintTracker {
     }
 
     /// Gets constraints for an edge
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, edge: &EdgeId) -> Option<ResourceConstraints> {
         self.constraints.get(edge).map(|entry| entry.clone())
     }

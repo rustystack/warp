@@ -153,21 +153,21 @@ pub struct Connection {
     // === Hot fields (checked on every acquire) ===
     /// Current lifecycle state of the connection.
     pub state: ConnectionState, // 1 byte - checked most frequently
-    _pad1: [u8; 3],             // 3 bytes padding for alignment
+    _pad1: [u8; 3], // 3 bytes padding for alignment
     /// Edge index this connection belongs to.
-    pub edge_idx: EdgeIdx,      // 4 bytes - used with state
+    pub edge_idx: EdgeIdx, // 4 bytes - used with state
     /// Unique connection identifier.
-    pub id: u64,                // 8 bytes - returned on match
+    pub id: u64, // 8 bytes - returned on match
     /// Timestamp of last activity in milliseconds since epoch.
-    pub last_used_ms: u64,      // 8 bytes - timeout checks
+    pub last_used_ms: u64, // 8 bytes - timeout checks
     /// Timestamp when connection was created in milliseconds since epoch.
-    pub created_at_ms: u64,     // 8 bytes - rarely accessed
+    pub created_at_ms: u64, // 8 bytes - rarely accessed
     // === Metrics (accessed on send/recv) ===
     /// Total bytes sent on this connection.
-    pub bytes_sent: u64,     // 8 bytes
+    pub bytes_sent: u64, // 8 bytes
     /// Total bytes received on this connection.
     pub bytes_received: u64, // 8 bytes
-    _pad2: [u8; 16],         // 16 bytes padding to reach 64 bytes
+    _pad2: [u8; 16], // 16 bytes padding to reach 64 bytes
 }
 
 // Compile-time assertions to prevent cache line regression
@@ -819,7 +819,13 @@ pub struct PathAwareConnection {
 
 impl PathAwareConnection {
     #[inline]
-    fn new(id: u64, edge_idx: EdgeIdx, path_id: PathId, local_ip: IpAddr, remote_ip: IpAddr) -> Self {
+    fn new(
+        id: u64,
+        edge_idx: EdgeIdx,
+        path_id: PathId,
+        local_ip: IpAddr,
+        remote_ip: IpAddr,
+    ) -> Self {
         Self {
             state: ConnectionState::Idle,
             edge_idx,
@@ -923,7 +929,9 @@ impl PooledPathConnection {
         // Mock fallback for tests
         if let Some(conn) = self.pool.connections.get(&self.conn_id) {
             if conn.state != ConnectionState::InUse {
-                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+                return Err(PoolError::InvalidConfig(
+                    "connection not in use".to_string(),
+                ));
             }
             Ok(())
         } else {
@@ -959,7 +967,9 @@ impl PooledPathConnection {
         // Mock fallback
         if let Some(mut conn) = self.pool.connections.get_mut(&self.conn_id) {
             if conn.state != ConnectionState::InUse {
-                return Err(PoolError::InvalidConfig("connection not in use".to_string()));
+                return Err(PoolError::InvalidConfig(
+                    "connection not in use".to_string(),
+                ));
             }
             let mock_data = Bytes::from(vec![0u8; 1024]);
             conn.bytes_received += mock_data.len() as u64;
@@ -1170,10 +1180,10 @@ pub struct DynamicMetricsConfig {
 impl Default for DynamicMetricsConfig {
     fn default() -> Self {
         Self {
-            throughput_window_ms: 1000,   // 1 second window
-            rtt_threshold: 0.20,          // 20% change for trend detection
-            max_rtt_samples: 10,          // Keep last 10 RTT samples
-            saturation_threshold: 0.85,   // 85% saturation = congested
+            throughput_window_ms: 1000, // 1 second window
+            rtt_threshold: 0.20,        // 20% change for trend detection
+            max_rtt_samples: 10,        // Keep last 10 RTT samples
+            saturation_threshold: 0.85, // 85% saturation = congested
         }
     }
 }
@@ -1222,7 +1232,10 @@ impl MultiPathConnectionPoolInner {
         Self::with_metrics_config(config, DynamicMetricsConfig::default())
     }
 
-    fn with_metrics_config(config: MultiPathPoolConfig, metrics_config: DynamicMetricsConfig) -> Self {
+    fn with_metrics_config(
+        config: MultiPathPoolConfig,
+        metrics_config: DynamicMetricsConfig,
+    ) -> Self {
         Self {
             total_semaphore: Arc::new(Semaphore::new(config.base.max_total_connections)),
             config,
@@ -1240,15 +1253,17 @@ impl MultiPathConnectionPoolInner {
     }
 
     /// Get or create dynamic metrics for an edge
-    fn get_or_create_edge_metrics(&self, edge_idx: EdgeIdx, capacity_bps: u64) -> dashmap::mapref::one::RefMut<'_, EdgeIdx, DynamicEdgeMetrics> {
-        self.edge_metrics
-            .entry(edge_idx)
-            .or_insert_with(|| {
-                let mut metrics = DynamicEdgeMetrics::new(edge_idx, capacity_bps);
-                metrics.max_rtt_samples = self.metrics_config.max_rtt_samples;
-                metrics.rtt_threshold = self.metrics_config.rtt_threshold;
-                metrics
-            })
+    fn get_or_create_edge_metrics(
+        &self,
+        edge_idx: EdgeIdx,
+        capacity_bps: u64,
+    ) -> dashmap::mapref::one::RefMut<'_, EdgeIdx, DynamicEdgeMetrics> {
+        self.edge_metrics.entry(edge_idx).or_insert_with(|| {
+            let mut metrics = DynamicEdgeMetrics::new(edge_idx, capacity_bps);
+            metrics.max_rtt_samples = self.metrics_config.max_rtt_samples;
+            metrics.rtt_threshold = self.metrics_config.rtt_threshold;
+            metrics
+        })
     }
 
     /// Record bytes transferred for an edge (called on send/receive)
@@ -1365,10 +1380,7 @@ impl MultiPathConnectionPool {
     /// Create a new multi-path connection pool
     ///
     /// Requires a MultiPathEndpoint for interface binding and optional config.
-    pub fn new(
-        multi_endpoint: MultiPathEndpoint,
-        config: MultiPathPoolConfig,
-    ) -> Result<Self> {
+    pub fn new(multi_endpoint: MultiPathEndpoint, config: MultiPathPoolConfig) -> Result<Self> {
         config.validate()?;
         Ok(Self {
             inner: Arc::new(MultiPathConnectionPoolInner::new(config)),
@@ -1398,13 +1410,12 @@ impl MultiPathConnectionPool {
         let local_ips = multi_ep.local_ips();
 
         if local_ips.is_empty() {
-            return Err(PoolError::NoPath("No local interfaces available".to_string()));
+            return Err(PoolError::NoPath(
+                "No local interfaces available".to_string(),
+            ));
         }
 
-        let active_endpoints: Vec<_> = peer_endpoints
-            .iter()
-            .filter(|ep| ep.enabled)
-            .collect();
+        let active_endpoints: Vec<_> = peer_endpoints.iter().filter(|ep| ep.enabled).collect();
 
         if active_endpoints.is_empty() {
             return Err(PoolError::NoPath("No active peer endpoints".to_string()));
@@ -1450,14 +1461,10 @@ impl MultiPathConnectionPool {
             }
 
             // Try to create a new connection on this path
-            match self.try_create_connection(
-                edge_idx,
-                path_id,
-                local_ip,
-                peer_ep,
-                server_name,
-                &multi_ep,
-            ).await {
+            match self
+                .try_create_connection(edge_idx, path_id, local_ip, peer_ep, server_name, &multi_ep)
+                .await
+            {
                 Ok(pooled_conn) => return Ok(pooled_conn),
                 Err(PoolError::MaxConnectionsPerEdge(_)) => continue, // Try next path
                 Err(PoolError::MaxTotalConnections(_)) => continue,
@@ -1468,7 +1475,9 @@ impl MultiPathConnectionPool {
             }
         }
 
-        Err(PoolError::NoPath("All paths exhausted or at capacity".to_string()))
+        Err(PoolError::NoPath(
+            "All paths exhausted or at capacity".to_string(),
+        ))
     }
 
     /// Try to create a new connection on a specific path
@@ -1482,14 +1491,14 @@ impl MultiPathConnectionPool {
         multi_ep: &MultiPathEndpoint,
     ) -> Result<PooledPathConnection> {
         // Acquire semaphores
-        let _total_permit = self.inner.total_semaphore
-            .try_acquire()
-            .map_err(|_| PoolError::MaxTotalConnections(self.inner.config.base.max_total_connections))?;
+        let _total_permit = self.inner.total_semaphore.try_acquire().map_err(|_| {
+            PoolError::MaxTotalConnections(self.inner.config.base.max_total_connections)
+        })?;
 
         let path_sem = self.inner.get_path_semaphore(path_id);
-        let _path_permit = path_sem
-            .try_acquire()
-            .map_err(|_| PoolError::MaxConnectionsPerEdge(self.inner.config.max_connections_per_path))?;
+        let _path_permit = path_sem.try_acquire().map_err(|_| {
+            PoolError::MaxConnectionsPerEdge(self.inner.config.max_connections_per_path)
+        })?;
 
         // Connect via specific interface
         let transport = multi_ep
@@ -1499,17 +1508,20 @@ impl MultiPathConnectionPool {
 
         let transport = Arc::new(transport);
         let conn_id = self.inner.next_conn_id.fetch_add(1, Ordering::Relaxed);
-        let mut conn = PathAwareConnection::new(conn_id, edge_idx, path_id, local_ip, peer_ep.addr.ip());
+        let mut conn =
+            PathAwareConnection::new(conn_id, edge_idx, path_id, local_ip, peer_ep.addr.ip());
         conn.mark_used();
 
         // Store connection and transport
         self.inner.connections.insert(conn_id, conn);
         self.inner.transports.insert(conn_id, transport);
-        self.inner.edge_connections
+        self.inner
+            .edge_connections
             .entry(edge_idx)
             .or_insert_with(Vec::new)
             .push(conn_id);
-        self.inner.path_connections
+        self.inner
+            .path_connections
             .entry(path_id)
             .or_insert_with(Vec::new)
             .push(conn_id);
@@ -1543,10 +1555,14 @@ impl MultiPathConnectionPool {
             for conn_id in conn_ids {
                 if let Some((_, conn)) = self.inner.connections.remove(&conn_id) {
                     self.inner.transports.remove(&conn_id);
-                    self.inner.path_connections.get_mut(&conn.path_id)
+                    self.inner
+                        .path_connections
+                        .get_mut(&conn.path_id)
                         .map(|mut v| v.retain(|&id| id != conn_id));
                     self.inner.in_flight_paths.remove(&conn.path_id);
-                    self.inner.idle_connections.get_mut(&conn.path_id)
+                    self.inner
+                        .idle_connections
+                        .get_mut(&conn.path_id)
                         .map(|mut v| v.retain(|&id| id != conn_id));
                 }
             }
@@ -1649,7 +1665,8 @@ impl MultiPathConnectionPool {
     ///
     /// Should be called when an edge is discovered or configured.
     pub fn init_edge_metrics(&self, edge_idx: EdgeIdx, capacity_bps: u64) {
-        self.inner.get_or_create_edge_metrics(edge_idx, capacity_bps);
+        self.inner
+            .get_or_create_edge_metrics(edge_idx, capacity_bps);
     }
 
     /// Check if an edge is currently congested
@@ -1666,7 +1683,11 @@ impl MultiPathConnectionPool {
         self.inner
             .edge_metrics
             .iter()
-            .filter(|entry| entry.value().is_congested(self.inner.metrics_config.saturation_threshold))
+            .filter(|entry| {
+                entry
+                    .value()
+                    .is_congested(self.inner.metrics_config.saturation_threshold)
+            })
             .map(|entry| *entry.key())
             .collect()
     }
@@ -2137,10 +2158,8 @@ mod tests {
     #[test]
     fn test_path_aware_connection_creation() {
         let edge_idx = EdgeIdx::new(1);
-        let path_id = PathId::from_ips(
-            "10.10.10.1".parse().unwrap(),
-            "10.10.10.2".parse().unwrap(),
-        );
+        let path_id =
+            PathId::from_ips("10.10.10.1".parse().unwrap(), "10.10.10.2".parse().unwrap());
         let conn = PathAwareConnection::new(
             42,
             edge_idx,

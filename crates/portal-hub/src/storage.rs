@@ -277,7 +277,8 @@ impl HubStorage {
 
     /// Store an encrypted manifest
     pub fn store_manifest(&self, portal_id: PortalId, encrypted_manifest: &[u8]) {
-        self.manifests.insert(portal_id, encrypted_manifest.to_vec());
+        self.manifests
+            .insert(portal_id, encrypted_manifest.to_vec());
     }
 
     /// Get an encrypted manifest

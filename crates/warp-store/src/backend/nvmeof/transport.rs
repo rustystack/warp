@@ -316,7 +316,10 @@ impl TcpConnection {
     }
 
     /// Send a command and receive response
-    pub async fn execute(&self, capsule: &mut CommandCapsule) -> NvmeOfBackendResult<ResponseCapsule> {
+    pub async fn execute(
+        &self,
+        capsule: &mut CommandCapsule,
+    ) -> NvmeOfBackendResult<ResponseCapsule> {
         // Assign command ID
         let cid = self.next_cid();
         capsule.command.set_cid(cid);
@@ -368,7 +371,12 @@ impl TcpConnection {
         }
 
         let pdu_type = resp_header[0];
-        let resp_len = u32::from_le_bytes([resp_header[4], resp_header[5], resp_header[6], resp_header[7]]) as usize;
+        let resp_len = u32::from_le_bytes([
+            resp_header[4],
+            resp_header[5],
+            resp_header[6],
+            resp_header[7],
+        ]) as usize;
 
         if pdu_type != PduType::CapsuleResp as u8 {
             return Err(NvmeOfBackendError::Protocol(format!(
@@ -398,7 +406,11 @@ impl TcpConnection {
             None
         };
 
-        trace!("Received response CID={}, status={:#x}", completion.cid(), completion.status());
+        trace!(
+            "Received response CID={}, status={:#x}",
+            completion.cid(),
+            completion.status()
+        );
 
         Ok(ResponseCapsule { completion, data })
     }

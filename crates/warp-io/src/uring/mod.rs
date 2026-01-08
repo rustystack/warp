@@ -16,18 +16,18 @@
 //! On other platforms, use the standard tokio async I/O fallback.
 
 #[cfg(all(target_os = "linux", feature = "io-uring"))]
+mod async_io;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
 mod backend;
 #[cfg(all(target_os = "linux", feature = "io-uring"))]
 mod registered_buffers;
-#[cfg(all(target_os = "linux", feature = "io-uring"))]
-mod async_io;
 
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub use async_io::{IoUringAsyncReader, IoUringChunker, chunk_file_uring};
 #[cfg(all(target_os = "linux", feature = "io-uring"))]
 pub use backend::{IoUringBackend, IoUringStats};
 #[cfg(all(target_os = "linux", feature = "io-uring"))]
 pub use registered_buffers::{RegisteredBuffer, RegisteredBufferPool};
-#[cfg(all(target_os = "linux", feature = "io-uring"))]
-pub use async_io::{IoUringAsyncReader, IoUringChunker, chunk_file_uring};
 
 /// io_uring configuration options
 #[derive(Debug, Clone)]
@@ -112,9 +112,12 @@ pub fn is_available() -> bool {
 fn parse_kernel_version(version_str: &str) -> Option<(u32, u32, u32)> {
     // /proc/version format: "Linux version X.Y.Z-..."
     // Extract the version number part
-    let version_part = version_str
-        .split_whitespace()
-        .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))?;
+    let version_part = version_str.split_whitespace().find(|s| {
+        s.chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+    })?;
 
     let parts: Vec<&str> = version_part.split('.').collect();
     if parts.len() >= 2 {

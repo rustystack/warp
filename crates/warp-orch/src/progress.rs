@@ -93,7 +93,11 @@ impl SpeedEstimator {
     ///
     /// Returns `None` if no speed data available or speed is zero
     #[must_use]
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub fn estimate_eta(&self, remaining_bytes: u64) -> Option<u64> {
         if self.current_speed_bps <= 0.0 || remaining_bytes == 0 {
             return None;

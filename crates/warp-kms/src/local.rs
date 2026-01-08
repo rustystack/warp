@@ -393,14 +393,15 @@ impl KmsProvider for LocalKms {
                                 old_master.algorithm,
                                 &old_master.material,
                                 ciphertext,
-                            ) {
-                                debug!(
-                                    key_id = %key_id,
-                                    version = %encrypted.version,
-                                    "Decrypted data key with older version"
-                                );
-                                return Ok(plaintext);
-                            }
+                            )
+                        {
+                            debug!(
+                                key_id = %key_id,
+                                version = %encrypted.version,
+                                "Decrypted data key with older version"
+                            );
+                            return Ok(plaintext);
+                        }
                     }
                 }
             }

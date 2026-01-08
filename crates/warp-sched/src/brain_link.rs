@@ -65,7 +65,7 @@ pub enum CommunicationPattern {
 
 impl CommunicationPattern {
     /// Get bandwidth requirement factor (0.0 - 1.0).
-    #[must_use] 
+    #[must_use]
     pub const fn bandwidth_factor(&self) -> f64 {
         match self {
             Self::AllReduce => 1.0,
@@ -79,7 +79,7 @@ impl CommunicationPattern {
     }
 
     /// Check if pattern benefits from locality.
-    #[must_use] 
+    #[must_use]
     pub const fn benefits_from_locality(&self) -> bool {
         matches!(
             self,
@@ -115,7 +115,7 @@ pub enum TransportType {
 
 impl TransportType {
     /// Get typical latency in microseconds.
-    #[must_use] 
+    #[must_use]
     pub const fn latency_us(&self) -> u32 {
         match self {
             Self::SharedMemory => 1,
@@ -132,7 +132,7 @@ impl TransportType {
     }
 
     /// Get typical bandwidth in Gbps.
-    #[must_use] 
+    #[must_use]
     pub const fn bandwidth_gbps(&self) -> u32 {
         match self {
             Self::NvLink => 600,
@@ -149,7 +149,7 @@ impl TransportType {
     }
 
     /// Check if this is a high-performance transport.
-    #[must_use] 
+    #[must_use]
     pub const fn is_high_performance(&self) -> bool {
         matches!(
             self,
@@ -164,13 +164,13 @@ impl TransportType {
     }
 
     /// Check if this transport uses DPU.
-    #[must_use] 
+    #[must_use]
     pub const fn uses_dpu(&self) -> bool {
         matches!(self, Self::DpuInline | Self::DpuRdma)
     }
 
     /// Check if this transport supports inline processing.
-    #[must_use] 
+    #[must_use]
     pub const fn supports_inline_processing(&self) -> bool {
         matches!(self, Self::DpuInline | Self::DpuRdma)
     }
@@ -192,7 +192,7 @@ pub enum DpuType {
 
 impl DpuType {
     /// Check if this is a real DPU (not None).
-    #[must_use] 
+    #[must_use]
     pub const fn is_hardware(&self) -> bool {
         !matches!(self, Self::None)
     }
@@ -217,7 +217,7 @@ pub struct DpuCapabilities {
 
 impl DpuCapabilities {
     /// Create capabilities for BlueField-3.
-    #[must_use] 
+    #[must_use]
     pub const fn bluefield3() -> Self {
         Self {
             has_inline_crypto: true,
@@ -230,13 +230,13 @@ impl DpuCapabilities {
     }
 
     /// Check if any DPU acceleration is available.
-    #[must_use] 
+    #[must_use]
     pub const fn has_any_acceleration(&self) -> bool {
         self.has_inline_crypto || self.has_inline_compress || self.has_inline_ec
     }
 
     /// Calculate DPU score for placement (higher = better).
-    #[must_use] 
+    #[must_use]
     pub fn score(&self) -> f64 {
         let mut score = 0.0;
         if self.has_inline_crypto {
@@ -357,7 +357,7 @@ impl EdgeNodeInfo {
     }
 
     /// Set GPU count.
-    #[must_use] 
+    #[must_use]
     pub const fn with_gpus(mut self, count: u32, memory_available: u64) -> Self {
         self.gpu_count = count;
         self.gpu_memory_available = memory_available;
@@ -365,7 +365,7 @@ impl EdgeNodeInfo {
     }
 
     /// Add transport.
-    #[must_use] 
+    #[must_use]
     pub fn with_transport(mut self, transport: TransportType) -> Self {
         if !self.transports.contains(&transport) {
             self.transports.push(transport);
@@ -374,7 +374,7 @@ impl EdgeNodeInfo {
     }
 
     /// Set DPU configuration.
-    #[must_use] 
+    #[must_use]
     pub fn with_dpu(
         mut self,
         count: u32,
@@ -397,25 +397,27 @@ impl EdgeNodeInfo {
     }
 
     /// Check if node has high-performance transport.
-    #[must_use] 
+    #[must_use]
     pub fn has_high_perf_transport(&self) -> bool {
-        self.transports.iter().any(TransportType::is_high_performance)
+        self.transports
+            .iter()
+            .any(TransportType::is_high_performance)
     }
 
     /// Check if node has DPU capabilities.
-    #[must_use] 
+    #[must_use]
     pub const fn has_dpu(&self) -> bool {
         self.dpu_count > 0 && self.dpu_type.is_hardware()
     }
 
     /// Check if node has DPU inline processing.
-    #[must_use] 
+    #[must_use]
     pub const fn has_dpu_inline(&self) -> bool {
         self.has_dpu() && self.dpu_capabilities.has_any_acceleration()
     }
 
     /// Calculate node score for placement.
-    #[must_use] 
+    #[must_use]
     pub fn placement_score(&self, request: &ChunkPlacementRequest) -> f64 {
         if !self.healthy {
             return 0.0;
@@ -488,7 +490,7 @@ pub struct NetworkLink {
 
 impl NetworkLink {
     /// Create a new link.
-    #[must_use] 
+    #[must_use]
     pub fn new(source: EdgeIdx, destination: EdgeIdx, transports: Vec<TransportType>) -> Self {
         let best = transports
             .iter()
@@ -508,7 +510,7 @@ impl NetworkLink {
     }
 
     /// Calculate link score (higher = better).
-    #[must_use] 
+    #[must_use]
     pub fn score(&self) -> f64 {
         if !self.healthy {
             return 0.0;
@@ -549,7 +551,7 @@ pub struct BrainLink {
 
 impl BrainLink {
     /// Create a new Brain-Link instance.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             edges: Arc::new(RwLock::new(HashMap::new())),
@@ -561,7 +563,7 @@ impl BrainLink {
     }
 
     /// Create with local edge.
-    #[must_use] 
+    #[must_use]
     pub const fn with_local_edge(mut self, edge: EdgeIdx) -> Self {
         self.local_edge = edge;
         self

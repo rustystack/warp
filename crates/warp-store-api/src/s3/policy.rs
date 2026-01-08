@@ -341,8 +341,7 @@ pub async fn put_policy<B: StorageBackend>(
 
     // Store the policy
     if let Some(pm) = &state.policy_manager {
-        pm.set(&bucket, policy)
-            .map_err(ApiError::InvalidRequest)?;
+        pm.set(&bucket, policy).map_err(ApiError::InvalidRequest)?;
     } else {
         return Err(ApiError::Internal(
             "Policy manager not configured".to_string(),

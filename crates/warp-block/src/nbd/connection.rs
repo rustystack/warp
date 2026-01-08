@@ -11,8 +11,8 @@ use tokio::net::TcpStream;
 use tracing::{debug, info, trace, warn};
 
 use super::{
-    ClientFlags, ExportInfo, GlobalFlags, NbdCommand, NbdOption, NbdReply, NbdReplyType,
-    NbdRequest, TransmissionFlags, NBD_INIT_MAGIC, NBD_OPTS_MAGIC, NBD_REP_MAGIC,
+    ClientFlags, ExportInfo, GlobalFlags, NBD_INIT_MAGIC, NBD_OPTS_MAGIC, NBD_REP_MAGIC,
+    NbdCommand, NbdOption, NbdReply, NbdReplyType, NbdRequest, TransmissionFlags,
 };
 use crate::error::{BlockError, BlockResult, NbdError};
 
@@ -87,9 +87,8 @@ impl NbdConnection {
             match self.handle_option(exports).await? {
                 OptionResult::Continue => continue,
                 OptionResult::GoToTransmission(name) => {
-                    volume = get_volume(&name).ok_or_else(|| {
-                        BlockError::VolumeNotFound(name.clone())
-                    })?;
+                    volume = get_volume(&name)
+                        .ok_or_else(|| BlockError::VolumeNotFound(name.clone()))?;
                     self.state = ConnectionState::Transmission;
                     break;
                 }
@@ -214,11 +213,7 @@ impl NbdConnection {
     }
 
     /// Handle NBD_OPT_GO
-    async fn handle_go(
-        &mut self,
-        name: &str,
-        exports: &[ExportInfo],
-    ) -> BlockResult<OptionResult> {
+    async fn handle_go(&mut self, name: &str, exports: &[ExportInfo]) -> BlockResult<OptionResult> {
         let export = exports.iter().find(|e| e.name == name);
 
         match export {
@@ -338,9 +333,7 @@ impl NbdConnection {
             let request = NbdRequest::parse(&request_buf)?;
             trace!(
                 "Request: {:?} offset={} len={}",
-                request.command,
-                request.offset,
-                request.length
+                request.command, request.offset, request.length
             );
 
             match self.handle_command(&request, volume, &export).await {
@@ -497,7 +490,11 @@ impl NbdConnection {
         }
 
         volume
-            .write_zeroes(request.offset, request.length, request.flags.has_fast_zero())
+            .write_zeroes(
+                request.offset,
+                request.length,
+                request.flags.has_fast_zero(),
+            )
             .await?;
 
         if request.flags.has_fua() {

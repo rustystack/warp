@@ -4,16 +4,16 @@
 
 #![cfg(all(target_os = "linux", feature = "io-uring"))]
 
-use super::registered_buffers::{RegisteredBuffer, RegisteredBufferPool};
 use super::IoUringConfig;
+use super::registered_buffers::{RegisteredBuffer, RegisteredBufferPool};
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, trace, warn};
 
 /// io_uring-based I/O backend for high-performance file operations
@@ -127,7 +127,8 @@ impl IoUringBackend {
         }
 
         let bytes_read = result as usize;
-        self.bytes_read.fetch_add(bytes_read as u64, Ordering::Relaxed);
+        self.bytes_read
+            .fetch_add(bytes_read as u64, Ordering::Relaxed);
         self.ops_completed.fetch_add(1, Ordering::Relaxed);
 
         // Convert to Bytes
@@ -171,11 +172,10 @@ impl IoUringBackend {
         let fd = io_uring::types::Fd(file.as_raw_fd());
 
         // Build write operation
-        let write_op =
-            io_uring::opcode::Write::new(fd, data.as_ptr(), data.len() as u32)
-                .offset(offset)
-                .build()
-                .user_data(0);
+        let write_op = io_uring::opcode::Write::new(fd, data.as_ptr(), data.len() as u32)
+            .offset(offset)
+            .build()
+            .user_data(0);
 
         // Safety: data must remain valid until completion
         unsafe {
@@ -266,7 +266,8 @@ impl IoUringBackend {
                 }
 
                 let bytes_read = result as usize;
-                self.bytes_read.fetch_add(bytes_read as u64, Ordering::Relaxed);
+                self.bytes_read
+                    .fetch_add(bytes_read as u64, Ordering::Relaxed);
 
                 let data = Bytes::copy_from_slice(&buffers[idx].as_slice()[..bytes_read]);
                 results[idx] = Some(data);

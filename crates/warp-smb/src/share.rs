@@ -24,7 +24,6 @@ pub enum ShareType {
     CommDevice = 0x00000003,
 }
 
-
 /// Share flags
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShareFlags(u32);
@@ -86,8 +85,7 @@ impl Default for ShareFlags {
 }
 
 /// Share capabilities
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ShareCapabilities(u32);
 
 impl ShareCapabilities {
@@ -120,7 +118,6 @@ impl ShareCapabilities {
     }
 }
 
-
 /// SMB share configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SmbShare {
@@ -149,8 +146,7 @@ pub struct SmbShare {
 }
 
 /// Client-side caching mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CachingMode {
     /// Manual caching
     #[default]
@@ -164,7 +160,6 @@ pub enum CachingMode {
     /// Branch cache
     BranchCache,
 }
-
 
 impl Default for SmbShare {
     fn default() -> Self {

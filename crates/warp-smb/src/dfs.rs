@@ -184,8 +184,7 @@ pub struct DfsReferralResponse {
 }
 
 /// Referral header flags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ReferralHeaderFlags(u32);
 
 impl ReferralHeaderFlags {
@@ -204,7 +203,6 @@ impl ReferralHeaderFlags {
         self.0
     }
 }
-
 
 /// DFS referral entry (v3/v4)
 #[derive(Debug, Clone)]

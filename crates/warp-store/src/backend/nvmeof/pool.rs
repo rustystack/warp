@@ -3,8 +3,8 @@
 //! Manages connections to multiple NVMe-oF targets.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
@@ -256,11 +256,9 @@ impl NvmeOfConnectionPool {
         .map_err(|_| NvmeOfBackendError::PoolExhausted)?;
 
         // Get target address
-        let target_addr = pool
-            .config
-            .addresses
-            .first()
-            .ok_or_else(|| NvmeOfBackendError::Config("No target addresses configured".to_string()))?;
+        let target_addr = pool.config.addresses.first().ok_or_else(|| {
+            NvmeOfBackendError::Config("No target addresses configured".to_string())
+        })?;
 
         // Create TCP connection
         let transport_conn = TcpConnection::connect(*target_addr).await?;

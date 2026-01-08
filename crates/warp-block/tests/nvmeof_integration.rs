@@ -546,8 +546,8 @@ mod quic_tests {
     use super::*;
     use std::time::Duration;
     use tokio::time::timeout;
-    use warp_block::nvmeof::transport::quic::{NvmeOfQuicConfig, QuicTransport};
     use warp_block::nvmeof::transport::NvmeOfTransport;
+    use warp_block::nvmeof::transport::quic::{NvmeOfQuicConfig, QuicTransport};
 
     #[tokio::test]
     async fn test_quic_transport_bind() {

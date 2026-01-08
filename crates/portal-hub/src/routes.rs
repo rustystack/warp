@@ -408,7 +408,9 @@ impl IntoResponse for Error {
             Self::AuthFailed | Self::InvalidSignature => {
                 (StatusCode::UNAUTHORIZED, self.to_string())
             }
-            Self::InvalidContentId | Self::Serialization(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            Self::InvalidContentId | Self::Serialization(_) => {
+                (StatusCode::BAD_REQUEST, self.to_string())
+            }
             Self::ChunkTooLarge(_, _) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             Self::InvalidEdgeName(_) | Self::InvalidPortalName(_) => {
                 (StatusCode::BAD_REQUEST, self.to_string())

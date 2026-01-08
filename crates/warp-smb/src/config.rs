@@ -69,7 +69,6 @@ impl SmbDialect {
     }
 }
 
-
 /// SMB server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SmbConfig {

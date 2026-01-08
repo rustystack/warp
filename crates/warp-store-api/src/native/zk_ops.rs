@@ -7,10 +7,7 @@
 //!
 //! These endpoints require the `zk` feature to be enabled.
 
-use axum::{
-    Json,
-    extract::State,
-};
+use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 

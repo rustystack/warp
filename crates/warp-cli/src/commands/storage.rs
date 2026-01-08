@@ -3,8 +3,8 @@
 //! These commands provide MinIO mc-compatible CLI operations for
 //! interacting with warp-store.
 
-use anyhow::{bail, Context, Result};
-use console::{style, Term};
+use anyhow::{Context, Result, bail};
+use console::{Term, style};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write as IoWrite};
@@ -148,8 +148,14 @@ pub async fn list(path: &str, recursive: bool, json: bool) -> Result<()> {
         let buckets = store.list_buckets().await;
 
         if json {
-            let bucket_list: Vec<_> = buckets.iter().map(|b| serde_json::json!({"name": b})).collect();
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({"buckets": bucket_list}))?);
+            let bucket_list: Vec<_> = buckets
+                .iter()
+                .map(|b| serde_json::json!({"name": b}))
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({"buckets": bucket_list}))?
+            );
         } else if buckets.is_empty() {
             println!("{}", style("No buckets found").yellow());
         } else {
@@ -171,22 +177,35 @@ pub async fn list(path: &str, recursive: bool, json: bool) -> Result<()> {
 
         let opts = ListOptions {
             max_keys: Some(1000),
-            delimiter: if recursive { None } else { Some("/".to_string()) },
+            delimiter: if recursive {
+                None
+            } else {
+                Some("/".to_string())
+            },
             ..Default::default()
         };
 
-        let list_result = store.list_with_options(bucket_name, prefix_str, opts).await?;
+        let list_result = store
+            .list_with_options(bucket_name, prefix_str, opts)
+            .await?;
 
         if json {
-            let objects: Vec<_> = list_result.objects.iter().map(|o| {
-                serde_json::json!({
-                    "key": o.key,
-                    "size": o.size,
-                    "last_modified": o.last_modified.to_rfc3339(),
-                    "etag": o.etag
+            let objects: Vec<_> = list_result
+                .objects
+                .iter()
+                .map(|o| {
+                    serde_json::json!({
+                        "key": o.key,
+                        "size": o.size,
+                        "last_modified": o.last_modified.to_rfc3339(),
+                        "etag": o.etag
+                    })
                 })
-            }).collect();
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({"objects": objects}))?);
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({"objects": objects}))?
+            );
         } else if list_result.objects.is_empty() {
             println!(
                 "{}",
@@ -512,7 +531,11 @@ pub async fn stat(path: &str, _version_id: Option<&str>) -> Result<()> {
         term.write_line(&format!("{} Object Info:", style("[INFO]").cyan()))?;
         println!("  Bucket: {}", bucket);
         println!("  Key: {}", key_str);
-        println!("  Size: {} ({})", meta.size, humansize::format_size(meta.size, humansize::BINARY));
+        println!(
+            "  Size: {} ({})",
+            meta.size,
+            humansize::format_size(meta.size, humansize::BINARY)
+        );
         println!("  Last Modified: {}", meta.last_modified.to_rfc3339());
         println!("  ETag: {}", meta.etag);
         println!("  Content-Type: {}", meta.content_type);
@@ -521,7 +544,11 @@ pub async fn stat(path: &str, _version_id: Option<&str>) -> Result<()> {
         }
     } else {
         // Bucket info
-        term.write_line(&format!("{} Bucket Info: {}", style("[INFO]").cyan(), bucket))?;
+        term.write_line(&format!(
+            "{} Bucket Info: {}",
+            style("[INFO]").cyan(),
+            bucket
+        ))?;
         let buckets = store.list_buckets().await;
         if buckets.contains(&bucket.to_string()) {
             println!("  Status: exists");
@@ -604,7 +631,11 @@ pub async fn retention_get(path: &str, _version_id: Option<&str>) -> Result<()> 
     let object_key = ObjectKey::new(bucket, key)?;
     let lock_manager = ObjectLockManager::new(ObjectLockConfig::default());
 
-    term.write_line(&format!("{} Retention for: {}", style("[INFO]").cyan(), path))?;
+    term.write_line(&format!(
+        "{} Retention for: {}",
+        style("[INFO]").cyan(),
+        path
+    ))?;
 
     match lock_manager.get_object_retention(&object_key) {
         Ok(Some(retention)) => {
@@ -613,7 +644,10 @@ pub async fn retention_get(path: &str, _version_id: Option<&str>) -> Result<()> 
                 RetentionMode::Compliance => "COMPLIANCE",
             };
             println!("  Mode: {}", mode_str);
-            println!("  Retain Until: {}", retention.retain_until_date.to_rfc3339());
+            println!(
+                "  Retain Until: {}",
+                retention.retain_until_date.to_rfc3339()
+            );
         }
         Ok(None) => {
             println!("  No retention set");

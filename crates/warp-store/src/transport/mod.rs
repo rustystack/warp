@@ -24,8 +24,8 @@ pub mod rdma;
 
 #[cfg(feature = "rmpi")]
 pub use rdma::{
-    peer_to_endpoint, select_transport, RdmaConnectionState, RdmaEndpoint,
-    RdmaEndpointStatsSnapshot, RdmaTransport, RdmaTransportConfig,
+    RdmaConnectionState, RdmaEndpoint, RdmaEndpointStatsSnapshot, RdmaTransport,
+    RdmaTransportConfig, peer_to_endpoint, select_transport,
 };
 
 use std::collections::HashMap;

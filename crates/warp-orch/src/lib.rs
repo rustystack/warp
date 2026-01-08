@@ -47,9 +47,7 @@ pub use reconcile::{
     DriftConfig, DriftDetector, DriftMetrics, ReoptConfig, ReoptDecision, ReoptEvaluator,
     ReoptTrigger,
 };
-pub use striping::{
-    Stripe, StripedTransfer, StripedTransferMetrics, StripeStatus, StripingConfig,
-};
+pub use striping::{Stripe, StripeStatus, StripedTransfer, StripedTransferMetrics, StripingConfig};
 pub use triggers::{TriggerConfig, TriggerGenerator};
 pub use types::{
     ChunkTransfer, EdgeTransfer, TransferDirection, TransferId, TransferRequest, TransferResult,

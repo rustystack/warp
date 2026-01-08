@@ -66,7 +66,7 @@ impl CpuStateBuffers {
     /// # Arguments
     /// * `max_chunks` - Maximum number of chunks to track
     /// * `max_edges` - Maximum number of edges to track
-    #[must_use] 
+    #[must_use]
     pub fn new(max_chunks: usize, max_edges: usize) -> Self {
         Self {
             chunks: vec![None; max_chunks],
@@ -116,7 +116,7 @@ impl CpuStateBuffers {
     }
 
     /// Get chunk state by internal ID
-    #[must_use] 
+    #[must_use]
     pub fn get_chunk(&self, id: u32) -> Option<&ChunkState> {
         self.chunks.get(id as usize)?.as_ref()
     }
@@ -181,7 +181,7 @@ impl CpuStateBuffers {
     }
 
     /// Get edge state by index
-    #[must_use] 
+    #[must_use]
     pub fn get_edge(&self, idx: EdgeIdx) -> Option<&EdgeStateGpu> {
         self.edges.get(idx.0 as usize)?.as_ref()
     }
@@ -226,7 +226,7 @@ impl CpuStateBuffers {
     }
 
     /// Get all replica locations for a chunk
-    #[must_use] 
+    #[must_use]
     pub fn get_replicas(&self, chunk_id: u32) -> &[EdgeIdx] {
         self.replica_map
             .get(chunk_id as usize)
@@ -271,19 +271,19 @@ impl CpuStateBuffers {
     }
 
     /// Get number of chunks
-    #[must_use] 
+    #[must_use]
     pub fn chunk_count(&self) -> usize {
         self.chunks.iter().filter(|c| c.is_some()).count()
     }
 
     /// Get number of edges
-    #[must_use] 
+    #[must_use]
     pub fn edge_count(&self) -> usize {
         self.edges.iter().filter(|e| e.is_some()).count()
     }
 
     /// Create snapshot of current state
-    #[must_use] 
+    #[must_use]
     pub fn snapshot(&self) -> StateSnapshot {
         StateSnapshot {
             chunks: self.chunks.iter().filter_map(|c| *c).collect(),
@@ -295,13 +295,13 @@ impl CpuStateBuffers {
     }
 
     /// Find chunk by hash
-    #[must_use] 
+    #[must_use]
     pub fn find_chunk(&self, hash: &[u8; 32]) -> Option<u32> {
         self.chunk_index.get(hash).map(|v| *v)
     }
 
     /// Find edge by ID
-    #[must_use] 
+    #[must_use]
     pub fn find_edge(&self, edge_id: u32) -> Option<EdgeIdx> {
         self.edge_index.get(&edge_id).map(|v| EdgeIdx(*v))
     }
@@ -322,7 +322,7 @@ pub struct GpuStateBuffers {
 
 impl GpuStateBuffers {
     /// Create new GPU state buffers (currently uses CPU fallback)
-    #[must_use] 
+    #[must_use]
     pub fn new(max_chunks: usize, max_edges: usize) -> Self {
         Self {
             inner: CpuStateBuffers::new(max_chunks, max_edges),
@@ -341,7 +341,7 @@ impl GpuStateBuffers {
     }
 
     /// Get chunk (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn get_chunk(&self, id: u32) -> Option<&ChunkState> {
         self.inner.get_chunk(id)
     }
@@ -372,7 +372,7 @@ impl GpuStateBuffers {
     }
 
     /// Get edge (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn get_edge(&self, idx: EdgeIdx) -> Option<&EdgeStateGpu> {
         self.inner.get_edge(idx)
     }
@@ -402,7 +402,7 @@ impl GpuStateBuffers {
     }
 
     /// Get replicas (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn get_replicas(&self, chunk_id: u32) -> &[EdgeIdx] {
         self.inner.get_replicas(chunk_id)
     }
@@ -426,31 +426,31 @@ impl GpuStateBuffers {
     }
 
     /// Get chunk count (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn chunk_count(&self) -> usize {
         self.inner.chunk_count()
     }
 
     /// Get edge count (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn edge_count(&self) -> usize {
         self.inner.edge_count()
     }
 
     /// Create snapshot (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn snapshot(&self) -> StateSnapshot {
         self.inner.snapshot()
     }
 
     /// Find chunk by hash (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn find_chunk(&self, hash: &[u8; 32]) -> Option<u32> {
         self.inner.find_chunk(hash)
     }
 
     /// Find edge by ID (delegates to CPU implementation)
-    #[must_use] 
+    #[must_use]
     pub fn find_edge(&self, edge_id: u32) -> Option<EdgeIdx> {
         self.inner.find_edge(edge_id)
     }

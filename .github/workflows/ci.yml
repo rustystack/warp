@@ -1,0 +1,728 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # Code quality checks
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        continue-on-error: true
+
+      - name: Check for unwrap() in production code
+        run: |
+          unwrap_count=$(find crates -name "*.rs" -not -path "*/tests/*" -not -path "*/benches/*" -exec grep -c "\.unwrap()" {} \; 2>/dev/null | paste -sd+ | bc || echo 0)
+          echo "Found $unwrap_count unwrap() calls in production code"
+          if [ "$unwrap_count" -gt 100 ]; then
+            echo "::warning::High number of unwrap() calls detected: $unwrap_count"
+          fi
+
+      - name: Check file sizes
+        run: |
+          large_files=$(find crates -name "*.rs" -exec wc -l {} \; | awk '$1 > 850 {print $2}')
+          if [ -n "$large_files" ]; then
+            echo "::warning::Files exceeding 850 lines:"
+            echo "$large_files"
+          fi
+
+  # Security audit
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Core crates (foundational)
+  test-core:
+    name: Test Core - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-core
+          - warp-format
+          - warp-hash
+          - warp-io
+          - warp-stream
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Cryptography crates
+  test-crypto:
+    name: Test Crypto - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-crypto
+          - warp-ec
+          - warp-oprf
+          - warp-kms
+          - warp-iam
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Compression crates
+  test-compress:
+    name: Test Compress - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-compress
+          - warp-chonkers
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Network crates
+  test-network:
+    name: Test Network - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-net
+          - warp-ipc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Storage crates
+  test-storage:
+    name: Test Storage - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-fs
+          - warp-block
+          - warp-store
+          - warp-store-api
+          - warp-gateway-common
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Storage protocol crates (NFS, SMB)
+  test-storage-protocols:
+    name: Test Storage Protocols - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-nfs
+          - warp-smb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Portal crates (distributed hub)
+  test-portal:
+    name: Test Portal - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - portal-core
+          - portal-hub
+          - portal-net
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # Infrastructure crates
+  test-infrastructure:
+    name: Test Infrastructure - ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - warp-sched
+          - warp-orch
+          - warp-telemetry
+          - warp-config
+          - warp-api
+          - warp-dashboard
+          - warp-edge
+          - warp-crdt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --all-features
+
+  # CLI crate
+  test-cli:
+    name: Test CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test warp-cli
+        run: cargo test -p warp-cli --all-features
+
+  # Neural compression (requires ONNX runtime)
+  test-neural:
+    name: Test Neural Compression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test warp-neural
+        run: cargo test -p warp-neural --all-features
+        continue-on-error: true
+
+  # GPU crates (compilation check on GitHub runners)
+  check-gpu:
+    name: Check GPU Crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check warp-gpu compilation
+        run: cargo check -p warp-gpu
+        continue-on-error: true
+
+      - name: Check warp-gpu-mem compilation
+        run: cargo check -p warp-gpu-mem
+        continue-on-error: true
+
+      - name: Check warp-tensor compilation
+        run: cargo check -p warp-tensor
+        continue-on-error: true
+
+      - name: Check warp-dpu compilation
+        run: cargo check -p warp-dpu
+        continue-on-error: true
+
+  # GPU tests on self-hosted runner
+  test-gpu:
+    name: GPU Tests
+    runs-on: [self-hosted, gpu, cuda]
+    if: github.ref == 'refs/heads/main'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check CUDA availability
+        run: nvidia-smi
+
+      - name: Test GPU crates
+        run: |
+          cargo test -p warp-gpu --all-features -- --nocapture
+          cargo test -p warp-gpu-mem --all-features -- --nocapture
+          cargo test -p warp-tensor --all-features -- --nocapture
+
+  # Documentation build
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        continue-on-error: true
+
+  # Workspace compilation check
+  check-workspace:
+    name: Check Workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout hpc-channels dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/hpc-channels
+          path: hpc-channels
+
+      - name: Checkout rmpi dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/rmpi
+          path: rmpi
+
+      - name: Checkout slai dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rustyhpc/slai
+          path: slai
+
+      - name: Create symlinks for path dependencies
+        run: |
+          ln -s $GITHUB_WORKSPACE/hpc-channels $GITHUB_WORKSPACE/../hpc-channels
+          ln -s $GITHUB_WORKSPACE/rmpi $GITHUB_WORKSPACE/../rmpi
+          ln -s $GITHUB_WORKSPACE/slai $GITHUB_WORKSPACE/../slai
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace compilation
+        run: cargo check --workspace
+
+  # Summary job for branch protection
+  ci-complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    needs:
+      - quality
+      - security
+      - check-workspace
+      - test-core
+      - test-crypto
+      - test-compress
+      - test-network
+      - test-storage
+      - test-portal
+      - test-infrastructure
+      - test-cli
+      - docs
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [ "${{ needs.quality.result }}" == "failure" ] || \
+             [ "${{ needs.security.result }}" == "failure" ] || \
+             [ "${{ needs.check-workspace.result }}" == "failure" ]; then
+            echo "Critical jobs failed"
+            exit 1
+          fi
+          echo "CI completed successfully"

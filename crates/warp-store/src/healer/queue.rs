@@ -11,8 +11,7 @@ use parking_lot::Mutex;
 use crate::replication::ShardKey;
 
 /// Priority level for repair jobs
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RepairPriority {
     /// Critical - data at risk of permanent loss
     Critical = 0,
@@ -31,7 +30,6 @@ impl RepairPriority {
         *self as u8
     }
 }
-
 
 /// A repair job in the queue
 #[derive(Debug, Clone)]

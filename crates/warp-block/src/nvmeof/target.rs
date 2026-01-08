@@ -323,8 +323,7 @@ impl NvmeOfTarget {
             let response = match connection.process_command(capsule.clone(), handler).await {
                 Ok(response) => {
                     // After Connect command, set up the real namespace handler
-                    if namespace_handler.is_none() && connection.state() == ConnectionState::Ready
-                    {
+                    if namespace_handler.is_none() && connection.state() == ConnectionState::Ready {
                         let subsystem_nqn = connection.subsystem_nqn();
                         if let Some(subsystem) = self.subsystems.get(&subsystem_nqn) {
                             namespace_handler = Some(SubsystemNamespaceHandler::new(
@@ -341,12 +340,7 @@ impl NvmeOfTarget {
                 Err(e) => {
                     warn!("Connection {} command processing error: {}", conn_id, e);
                     // Create error response
-                    ResponseCapsule::error(
-                        capsule.command.cid(),
-                        0,
-                        0,
-                        NvmeStatus::InternalError,
-                    )
+                    ResponseCapsule::error(capsule.command.cid(), 0, 0, NvmeStatus::InternalError)
                 }
             };
 

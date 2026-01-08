@@ -272,9 +272,10 @@ impl ConsistencyMode {
     /// Check if a node can write in this mode
     pub fn can_write(&self, node_id: NodeId, current_time_ms: u64) -> bool {
         match self {
-            ConsistencyMode::Exclusive { owner, lease_expires_ms } => {
-                *owner == node_id && current_time_ms < *lease_expires_ms
-            }
+            ConsistencyMode::Exclusive {
+                owner,
+                lease_expires_ms,
+            } => *owner == node_id && current_time_ms < *lease_expires_ms,
             ConsistencyMode::Shared { writers, .. } => {
                 writers.is_empty() || writers.contains(&node_id)
             }
@@ -285,9 +286,9 @@ impl ConsistencyMode {
     /// Check if a lease is expired (Exclusive mode only)
     pub fn is_lease_expired(&self, current_time_ms: u64) -> bool {
         match self {
-            ConsistencyMode::Exclusive { lease_expires_ms, .. } => {
-                current_time_ms >= *lease_expires_ms
-            }
+            ConsistencyMode::Exclusive {
+                lease_expires_ms, ..
+            } => current_time_ms >= *lease_expires_ms,
             _ => false,
         }
     }
@@ -513,7 +514,10 @@ mod tests {
         let mut writers = HashSet::new();
         writers.insert(1);
         writers.insert(2);
-        let restricted = ConsistencyMode::Shared { primary: 1, writers };
+        let restricted = ConsistencyMode::Shared {
+            primary: 1,
+            writers,
+        };
         assert!(restricted.can_write(1, 0));
         assert!(restricted.can_write(2, 0));
         assert!(!restricted.can_write(3, 0));

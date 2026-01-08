@@ -98,8 +98,9 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Portal lifecycle states
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[derive(Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub enum PortalState {
     /// Created but not yet active
     #[default]
@@ -113,7 +114,6 @@ pub enum PortalState {
     /// Archived, data retained but no access
     Archived,
 }
-
 
 impl std::fmt::Display for PortalState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -19,13 +19,13 @@ impl TensorId {
     }
 
     /// Create from raw value
-    #[must_use] 
+    #[must_use]
     pub fn from_raw(id: u64) -> Self {
         Self(id)
     }
 
     /// Get the raw value
-    #[must_use] 
+    #[must_use]
     pub fn as_u64(self) -> u64 {
         self.0
     }
@@ -79,7 +79,7 @@ impl TensorDtype {
     }
 
     /// Get the name of the dtype
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Float32 => "float32",
@@ -96,7 +96,6 @@ impl TensorDtype {
             Self::Float8E5M2 => "float8_e5m2",
         }
     }
-
 }
 
 impl std::str::FromStr for TensorDtype {
@@ -192,7 +191,7 @@ impl TensorMeta {
     }
 
     /// Set layout
-    #[must_use] 
+    #[must_use]
     pub fn with_layout(mut self, layout: TensorLayout) -> Self {
         self.layout = layout;
         self
@@ -313,7 +312,7 @@ pub struct LazyTensor {
 
 impl LazyTensor {
     /// Create new lazy tensor reference
-    #[must_use] 
+    #[must_use]
     pub fn new(meta: TensorMeta) -> Self {
         Self {
             meta,
@@ -329,7 +328,7 @@ impl LazyTensor {
     }
 
     /// Get time since last access
-    #[must_use] 
+    #[must_use]
     pub fn time_since_access(&self) -> Option<Duration> {
         self.last_access.map(|t| t.elapsed())
     }

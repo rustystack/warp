@@ -183,8 +183,7 @@ impl ErasurePolicy {
 }
 
 /// How shards are distributed across domains
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ShardDistribution {
     /// Spread shards across as many domains as possible (max fault tolerance)
     #[default]
@@ -196,7 +195,6 @@ pub enum ShardDistribution {
     /// Custom mapping of shard index to domain ID
     Custom(HashMap<u16, DomainId>),
 }
-
 
 /// Domain placement constraints
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,8 +245,7 @@ impl PlacementConstraints {
 }
 
 /// Read preference for geo-optimization
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ReadPreference {
     /// Read from the geographically nearest domain
     #[default]
@@ -263,7 +260,6 @@ pub enum ReadPreference {
     /// Round-robin across all domains with available shards
     RoundRobin,
 }
-
 
 /// Write acknowledgment configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

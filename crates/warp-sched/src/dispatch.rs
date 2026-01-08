@@ -71,7 +71,7 @@ impl DispatchQueue {
     /// assert_eq!(queue.generation(), 0);
     /// assert_eq!(queue.pending_count(), 0);
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             front_buffer: Arc::new(Mutex::new(Vec::new())),
@@ -110,7 +110,7 @@ impl DispatchQueue {
     /// let generation = queue.write_assignments(assignments);
     /// assert_eq!(generation, 1);
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn write_assignments(&self, assignments: Vec<Assignment>) -> u64 {
         // Increment generation first
         // Relaxed: generation is an independent monotonic counter
@@ -175,7 +175,7 @@ impl DispatchQueue {
     /// let batch = queue.read_assignments();
     /// assert!(batch.is_empty());
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn read_assignments(&self) -> AssignmentBatch {
         // Acquire: synchronize with Release in swap_buffers
         let active = self.active_buffer.load(Ordering::Acquire);
@@ -262,7 +262,7 @@ impl DispatchQueue {
     /// queue.write_assignments(vec![]);
     /// assert_eq!(queue.generation(), 1);
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn generation(&self) -> u64 {
         // Relaxed: generation is an independent monotonic counter
         self.generation.load(Ordering::Relaxed)
@@ -291,7 +291,7 @@ impl DispatchQueue {
     /// queue.swap_buffers();
     /// assert_eq!(queue.pending_count(), 1);
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn pending_count(&self) -> usize {
         // Acquire: synchronize with Release in swap_buffers
         let active = self.active_buffer.load(Ordering::Acquire);
@@ -340,7 +340,7 @@ impl DispatchQueue {
     /// queue.swap_buffers();
     /// assert!(!queue.has_pending()); // Empty vec has no pending
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn has_pending(&self) -> bool {
         self.pending_count() > 0
     }

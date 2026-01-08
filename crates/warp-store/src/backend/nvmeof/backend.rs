@@ -14,13 +14,13 @@ use super::error::NvmeOfBackendResult;
 use super::mapper::{ObjectBlockMapper, ObjectLocation};
 use super::metadata::MetadataStore;
 
+use crate::Result;
 use crate::backend::StorageBackend;
 use crate::key::ObjectKey;
 use crate::object::{
     FieldData, ListOptions, ObjectData, ObjectEntry, ObjectList, ObjectMeta, PutOptions,
     StorageClass,
 };
-use crate::Result;
 
 /// NVMe-oF storage backend
 ///

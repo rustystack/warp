@@ -85,8 +85,7 @@ pub struct ShardLocation {
 }
 
 /// Health status of a shard
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ShardHealth {
     /// Shard is healthy and accessible
     Healthy,
@@ -104,7 +103,6 @@ pub enum ShardHealth {
     #[default]
     Unknown,
 }
-
 
 /// Information about an object's shard distribution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -804,12 +802,9 @@ impl DistributedShardManager {
                     );
                     Ok(data)
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    Err(Error::Replication(format!(
-                        "Shard not found at path: {}",
-                        location.path
-                    )))
-                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(Error::Replication(
+                    format!("Shard not found at path: {}", location.path),
+                )),
                 Err(e) => Err(Error::Io(e)),
             }
         } else {
@@ -1025,9 +1020,8 @@ impl DistributedShardManager {
             }
         }
 
-        let (node, domain_id, _score) = best_candidate.ok_or_else(|| {
-            Error::Replication("No suitable repair target found".to_string())
-        })?;
+        let (node, domain_id, _score) = best_candidate
+            .ok_or_else(|| Error::Replication("No suitable repair target found".to_string()))?;
 
         // Generate path for the repaired shard
         let path = format!(
@@ -1071,9 +1065,9 @@ impl DistributedShardManager {
                 })?;
             }
 
-            tokio::fs::write(shard_path, data).await.map_err(|e| {
-                Error::Replication(format!("Failed to write shard: {}", e))
-            })?;
+            tokio::fs::write(shard_path, data)
+                .await
+                .map_err(|e| Error::Replication(format!("Failed to write shard: {}", e)))?;
 
             debug!(
                 bucket = %shard_key.bucket,
@@ -1131,14 +1125,12 @@ impl DistributedShardManager {
                         actual_checksum: Some(checksum),
                     })
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    Ok(ShardVerification {
-                        bytes_verified: 0,
-                        checksum_valid: false,
-                        expected_checksum: None,
-                        actual_checksum: None,
-                    })
-                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ShardVerification {
+                    bytes_verified: 0,
+                    checksum_valid: false,
+                    expected_checksum: None,
+                    actual_checksum: None,
+                }),
                 Err(e) => Err(Error::Io(e)),
             }
         } else {

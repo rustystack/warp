@@ -430,12 +430,12 @@ pub enum CreateType {
     /// Block device
     BlockDev {
         /// Device specification data (major, minor)
-        specdata: (u32, u32)
+        specdata: (u32, u32),
     },
     /// Character device
     CharDev {
         /// Device specification data (major, minor)
-        specdata: (u32, u32)
+        specdata: (u32, u32),
     },
     /// Socket
     Sock,

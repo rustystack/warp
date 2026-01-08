@@ -26,13 +26,13 @@ pub struct EdgeSnapshot {
 
 impl EdgeSnapshot {
     /// Returns the number of edges in the snapshot
-    #[must_use] 
+    #[must_use]
     pub fn count(&self) -> usize {
         self.edges.len()
     }
 
     /// Returns the number of online edges
-    #[must_use] 
+    #[must_use]
     pub fn count_online(&self) -> usize {
         self.edges
             .iter()
@@ -41,14 +41,14 @@ impl EdgeSnapshot {
     }
 
     /// Returns total available storage across all edges
-    #[must_use] 
+    #[must_use]
     pub const fn total_available_storage(&self) -> u64 {
         self.total_storage_capacity
             .saturating_sub(self.total_storage_used)
     }
 
     /// Returns average storage utilization (0.0 to 1.0)
-    #[must_use] 
+    #[must_use]
     pub fn average_utilization(&self) -> f64 {
         if self.total_storage_capacity == 0 {
             return 0.0;
@@ -71,7 +71,7 @@ pub struct EdgeRegistry {
 
 impl EdgeRegistry {
     /// Creates a new empty edge registry
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             edges: Arc::new(DashMap::new()),
@@ -112,7 +112,7 @@ impl EdgeRegistry {
     /// Unregisters an edge from the registry
     ///
     /// Returns the `EdgeInfo` if found, None otherwise.
-    #[must_use] 
+    #[must_use]
     pub fn unregister(&self, edge_id: &EdgeId) -> Option<EdgeInfo> {
         if let Some((_, edge)) = self.edges.remove(edge_id) {
             // Remove from IP lookup
@@ -124,13 +124,13 @@ impl EdgeRegistry {
     }
 
     /// Gets an edge by ID
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, edge_id: &EdgeId) -> Option<EdgeInfo> {
         self.edges.get(edge_id).map(|r| r.value().clone())
     }
 
     /// Gets an edge by virtual IP
-    #[must_use] 
+    #[must_use]
     pub fn get_by_ip(&self, vip: VirtualIp) -> Option<EdgeInfo> {
         self.by_ip
             .get(&vip)
@@ -138,7 +138,7 @@ impl EdgeRegistry {
     }
 
     /// Checks if an edge is registered
-    #[must_use] 
+    #[must_use]
     pub fn contains(&self, edge_id: &EdgeId) -> bool {
         self.edges.contains_key(edge_id)
     }
@@ -185,13 +185,13 @@ impl EdgeRegistry {
     }
 
     /// Lists all edges
-    #[must_use] 
+    #[must_use]
     pub fn list_all(&self) -> Vec<EdgeInfo> {
         self.edges.iter().map(|r| r.value().clone()).collect()
     }
 
     /// Lists edges with a specific status
-    #[must_use] 
+    #[must_use]
     pub fn list_by_status(&self, status: EdgeStatus) -> Vec<EdgeInfo> {
         self.edges
             .iter()
@@ -201,19 +201,19 @@ impl EdgeRegistry {
     }
 
     /// Lists all online edges
-    #[must_use] 
+    #[must_use]
     pub fn list_online(&self) -> Vec<EdgeInfo> {
         self.list_by_status(EdgeStatus::Online)
     }
 
     /// Returns the total number of registered edges
-    #[must_use] 
+    #[must_use]
     pub fn count(&self) -> usize {
         self.edges.len()
     }
 
     /// Returns the number of online edges
-    #[must_use] 
+    #[must_use]
     pub fn count_online(&self) -> usize {
         self.edges
             .iter()
@@ -224,7 +224,7 @@ impl EdgeRegistry {
     /// Prunes stale edges (not seen within timeout)
     ///
     /// Returns the list of `EdgeIds` that were pruned.
-    #[must_use] 
+    #[must_use]
     pub fn prune_stale(&self, timeout: Duration) -> Vec<EdgeId> {
         let now = SystemTime::now();
         let mut pruned = Vec::new();
@@ -255,7 +255,7 @@ impl EdgeRegistry {
     }
 
     /// Creates an immutable snapshot of the current registry state
-    #[must_use] 
+    #[must_use]
     pub fn snapshot(&self) -> EdgeSnapshot {
         let edges: Vec<EdgeInfo> = self.list_all();
 
