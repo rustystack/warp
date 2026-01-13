@@ -44,7 +44,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.92"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/warp"
 homepage = "https://github.com/yourusername/warp"
@@ -184,7 +184,7 @@ once_cell = "1.19"
 openraft = { version = "0.9", features = ["serde", "storage-v2"] }
 
 # HPC-AI integration
-hpc-channels = { path = "../hpc-channels", features = ["rkyv-codec"] }
+hpc-channels = { path = "../rustyinfra/network/hpc-channels", features = ["rkyv-codec"] }
 rmpi = { path = "../rmpi" }
 slai = { path = "../slai", default-features = false }
 

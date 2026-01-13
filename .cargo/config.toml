@@ -5,8 +5,10 @@ xtask = "run --package xtask --"
 # Uncomment for faster builds with shared generics
 # rustflags = ["-Zshare-generics=y"]
 
+# Performance optimizations: native CPU + mold linker
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=native"]
+linker = "clang"
+rustflags = ["-C", "target-cpu=native", "-C", "link-arg=-fuse-ld=mold"]
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "target-cpu=native"]
