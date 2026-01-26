@@ -1093,6 +1093,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "boringtun-warp"
+version = "0.7.1"
+dependencies = [
+ "aead",
+ "base64 0.22.1",
+ "blake2",
+ "chacha20poly1305",
+ "hex",
+ "libc",
+ "parking_lot 0.12.5",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "thiserror 2.0.17",
+ "tracing",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "borsh"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7038,6 +7056,7 @@ dependencies = [
  "aws-sdk-sqs",
  "base64 0.22.1",
  "blake3",
+ "boringtun-warp",
  "bytes",
  "chrono",
  "criterion",

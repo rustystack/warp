@@ -37,7 +37,7 @@
 #[cfg(feature = "rmpi")]
 pub mod rmpi_adapter;
 #[cfg(feature = "rmpi")]
-pub use rmpi_adapter::RmpiCollectiveAdapter;
+pub use rmpi_adapter::{RmpiCollectiveAdapter, SafeSendChunker, ChunkHeader, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -251,6 +251,28 @@ pub trait StorageCollectiveOps: Send + Sync {
 
     /// Barrier: wait for all ranks to reach this point
     async fn barrier(&self, ctx: &CollectiveContext) -> Result<()>;
+
+    /// All-reduce: combine values from all ranks using a reduction operation
+    ///
+    /// Each rank provides data, all ranks receive the reduced result.
+    /// Supports Sum, Max, Min, Product, and bitwise operations.
+    async fn all_reduce(
+        &self,
+        ctx: &CollectiveContext,
+        local_data: &ObjectData,
+        config: AllReduceConfig,
+    ) -> Result<AllReduceResult>;
+
+    /// Reduce-scatter: reduce then scatter result
+    ///
+    /// Combines all-reduce with scatter - reduces values from all ranks,
+    /// then distributes different portions of the result to each rank.
+    async fn reduce_scatter(
+        &self,
+        ctx: &CollectiveContext,
+        local_data: &ObjectData,
+        config: AllReduceConfig,
+    ) -> Result<ObjectData>;
 }
 
 /// Collective operations adapter for storage backends
@@ -410,10 +432,59 @@ impl<B: StorageBackend> StorageCollectiveOps for CollectiveAdapter<B> {
         trace!(rank = ctx.rank().id(), "Barrier passed");
         Ok(())
     }
+
+    async fn all_reduce(
+        &self,
+        ctx: &CollectiveContext,
+        local_data: &ObjectData,
+        config: AllReduceConfig,
+    ) -> Result<AllReduceResult> {
+        // In single-process mode, the result is just the local data
+        // (reducing with a single element returns itself)
+        debug!(
+            rank = ctx.rank().id(),
+            size = local_data.len(),
+            operation = ?config.operation,
+            "All-reduce complete (single-process)"
+        );
+
+        Ok(AllReduceResult {
+            data: local_data.clone(),
+            rank_count: 1,
+            operation: config.operation,
+        })
+    }
+
+    async fn reduce_scatter(
+        &self,
+        ctx: &CollectiveContext,
+        local_data: &ObjectData,
+        config: AllReduceConfig,
+    ) -> Result<ObjectData> {
+        // In single-process mode, reduce-scatter returns a portion of local data
+        let chunk_size = local_data.len() / ctx.world_size() as usize;
+        let my_rank = ctx.rank().id() as usize;
+        let start = my_rank * chunk_size;
+        let end = if my_rank == (ctx.world_size() - 1) as usize {
+            local_data.len()
+        } else {
+            start + chunk_size
+        };
+
+        debug!(
+            rank = ctx.rank().id(),
+            chunk_start = start,
+            chunk_end = end,
+            operation = ?config.operation,
+            "Reduce-scatter complete (single-process)"
+        );
+
+        Ok(ObjectData::from(local_data.as_ref()[start..end].to_vec()))
+    }
 }
 
 /// Reduction operations for collective reduce
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReduceOperation {
     /// Sum all values
     Sum,
@@ -429,6 +500,75 @@ pub enum ReduceOperation {
     BitOr,
     /// Bitwise XOR
     BitXor,
+}
+
+impl ReduceOperation {
+    /// Apply reduction operation to two f64 values
+    pub fn apply_f64(&self, a: f64, b: f64) -> f64 {
+        match self {
+            Self::Sum => a + b,
+            Self::Max => a.max(b),
+            Self::Min => a.min(b),
+            Self::Product => a * b,
+            Self::BitAnd | Self::BitOr | Self::BitXor => {
+                // For bitwise ops, convert to i64, operate, convert back
+                let ai = a as i64;
+                let bi = b as i64;
+                let result = match self {
+                    Self::BitAnd => ai & bi,
+                    Self::BitOr => ai | bi,
+                    Self::BitXor => ai ^ bi,
+                    _ => unreachable!(),
+                };
+                result as f64
+            }
+        }
+    }
+
+    /// Apply reduction operation to two i64 values
+    pub fn apply_i64(&self, a: i64, b: i64) -> i64 {
+        match self {
+            Self::Sum => a.saturating_add(b),
+            Self::Max => a.max(b),
+            Self::Min => a.min(b),
+            Self::Product => a.saturating_mul(b),
+            Self::BitAnd => a & b,
+            Self::BitOr => a | b,
+            Self::BitXor => a ^ b,
+        }
+    }
+}
+
+/// Result of an all-reduce operation
+#[derive(Debug, Clone)]
+pub struct AllReduceResult {
+    /// Reduced value as bytes
+    pub data: ObjectData,
+    /// Number of ranks that participated
+    pub rank_count: u32,
+    /// Operation performed
+    pub operation: ReduceOperation,
+}
+
+/// Configuration for all-reduce operation
+#[derive(Debug, Clone)]
+pub struct AllReduceConfig {
+    /// Reduction operation to apply
+    pub operation: ReduceOperation,
+    /// Whether to perform in-place reduction
+    pub in_place: bool,
+    /// Element size in bytes (for typed reductions)
+    pub element_size: usize,
+}
+
+impl Default for AllReduceConfig {
+    fn default() -> Self {
+        Self {
+            operation: ReduceOperation::Sum,
+            in_place: false,
+            element_size: 8, // Default to f64
+        }
+    }
 }
 
 #[cfg(test)]
@@ -498,5 +638,90 @@ mod tests {
         assert_eq!(config.pattern, DistributionPattern::RoundRobin);
         assert!(config.prefetch);
         assert!(config.rank_assignments.is_none());
+    }
+
+    #[test]
+    fn test_reduce_operation_f64() {
+        assert_eq!(ReduceOperation::Sum.apply_f64(3.0, 5.0), 8.0);
+        assert_eq!(ReduceOperation::Max.apply_f64(3.0, 5.0), 5.0);
+        assert_eq!(ReduceOperation::Min.apply_f64(3.0, 5.0), 3.0);
+        assert_eq!(ReduceOperation::Product.apply_f64(3.0, 5.0), 15.0);
+    }
+
+    #[test]
+    fn test_reduce_operation_i64() {
+        assert_eq!(ReduceOperation::Sum.apply_i64(3, 5), 8);
+        assert_eq!(ReduceOperation::Max.apply_i64(3, 5), 5);
+        assert_eq!(ReduceOperation::Min.apply_i64(3, 5), 3);
+        assert_eq!(ReduceOperation::Product.apply_i64(3, 5), 15);
+        assert_eq!(ReduceOperation::BitAnd.apply_i64(0b1100, 0b1010), 0b1000);
+        assert_eq!(ReduceOperation::BitOr.apply_i64(0b1100, 0b1010), 0b1110);
+        assert_eq!(ReduceOperation::BitXor.apply_i64(0b1100, 0b1010), 0b0110);
+    }
+
+    #[test]
+    fn test_all_reduce_config_default() {
+        let config = AllReduceConfig::default();
+        assert_eq!(config.operation, ReduceOperation::Sum);
+        assert!(!config.in_place);
+        assert_eq!(config.element_size, 8);
+    }
+
+    #[tokio::test]
+    async fn test_all_reduce_single_process() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let backend = crate::backend::LocalBackend::new(temp_dir.path())
+            .await
+            .unwrap();
+        let adapter = CollectiveAdapter::new(Arc::new(backend));
+
+        let ctx = CollectiveContext::new(1, Rank::new(0));
+        let data = ObjectData::from(vec![1u8, 2, 3, 4, 5, 6, 7, 8]);
+        let config = AllReduceConfig::default();
+
+        let result = adapter.all_reduce(&ctx, &data, config).await.unwrap();
+
+        // In single-process mode, result should equal input
+        assert_eq!(result.data.as_ref(), data.as_ref());
+        assert_eq!(result.rank_count, 1);
+        assert_eq!(result.operation, ReduceOperation::Sum);
+    }
+
+    #[tokio::test]
+    async fn test_reduce_scatter_single_process() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let backend = crate::backend::LocalBackend::new(temp_dir.path())
+            .await
+            .unwrap();
+        let adapter = CollectiveAdapter::new(Arc::new(backend));
+
+        let ctx = CollectiveContext::new(2, Rank::new(0));
+        let data = ObjectData::from(vec![1u8, 2, 3, 4, 5, 6, 7, 8]);
+        let config = AllReduceConfig::default();
+
+        let result = adapter.reduce_scatter(&ctx, &data, config).await.unwrap();
+
+        // Rank 0 should get first half
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.as_ref(), &[1u8, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn test_reduce_scatter_rank1() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let backend = crate::backend::LocalBackend::new(temp_dir.path())
+            .await
+            .unwrap();
+        let adapter = CollectiveAdapter::new(Arc::new(backend));
+
+        let ctx = CollectiveContext::new(2, Rank::new(1));
+        let data = ObjectData::from(vec![1u8, 2, 3, 4, 5, 6, 7, 8]);
+        let config = AllReduceConfig::default();
+
+        let result = adapter.reduce_scatter(&ctx, &data, config).await.unwrap();
+
+        // Rank 1 should get second half
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.as_ref(), &[5u8, 6, 7, 8]);
     }
 }

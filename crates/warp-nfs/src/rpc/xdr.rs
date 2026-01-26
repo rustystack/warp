@@ -108,6 +108,11 @@ impl<'a> XdrDecoder<'a> {
         self.data.len() - self.pos
     }
 
+    /// Get current position
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+
     /// Decode a 32-bit integer
     pub fn decode_u32(&mut self) -> io::Result<u32> {
         if self.remaining() < 4 {

@@ -21,6 +21,10 @@ use super::error::{NvmeOfError, NvmeOfResult, NvmeStatus};
 use super::namespace::{AsyncVolume, NamespaceHandlerImpl, NamespaceId, NvmeOfNamespace};
 use super::subsystem::{NvmeOfSubsystem, SubsystemManager};
 use super::transport::tcp::TcpTransport;
+#[cfg(feature = "nvmeof-quic")]
+use super::transport::quic::{NvmeOfQuicConfig as QuicInternalConfig, QuicTransport};
+#[cfg(feature = "nvmeof-rdma")]
+use super::transport::rdma::{RdmaConfig, RdmaTransport};
 use super::transport::{ConnectionState, NvmeOfTransport, TransportConnection};
 
 /// Namespace handler that routes to a subsystem's namespace manager
@@ -207,8 +211,85 @@ impl NvmeOfTarget {
             }
         }
 
-        // TODO: Add RDMA transport support
-        // TODO: Add QUIC transport support
+        // Start QUIC transport if configured
+        #[cfg(feature = "nvmeof-quic")]
+        if let Some(ref quic_config) = self.config.quic {
+            if quic_config.enabled {
+                let target = self.clone();
+                let quic_internal_config = QuicInternalConfig {
+                    enabled: true,
+                    max_concurrent_bidi_streams: quic_config.max_concurrent_streams,
+                    max_concurrent_uni_streams: quic_config.max_concurrent_streams,
+                    keep_alive_interval: std::time::Duration::from_secs(15),
+                    idle_timeout: quic_config.max_idle_timeout,
+                    max_udp_payload_size: quic_config.max_udp_payload_size,
+                    initial_rtt: quic_config.initial_rtt,
+                    connect_timeout: std::time::Duration::from_secs(30),
+                    max_inline_data: self.config.max_inline_data_size,
+                    max_io_size: self.config.max_io_size,
+                    alpn_protocols: quic_config
+                        .alpn_protocols
+                        .iter()
+                        .map(|s| s.as_bytes().to_vec())
+                        .collect(),
+                    server_name: "localhost".to_string(),
+                };
+                let mut transport = QuicTransport::new(quic_internal_config);
+                let quic_port = TransportType::Quic.default_port();
+                let quic_addr = SocketAddr::new(self.config.bind_addr, quic_port);
+                transport.bind(quic_addr).await?;
+
+                // Register listen address with discovery
+                self.discovery
+                    .add_listen_addr(TransportType::Quic, quic_addr);
+
+                // Spawn accept loop
+                let shutdown_rx = self.shutdown_tx.subscribe();
+                tokio::spawn(async move {
+                    target.accept_loop(transport, shutdown_rx).await;
+                });
+
+                info!("QUIC transport listening on {}", quic_addr);
+            }
+        }
+
+        // Start RDMA transport if configured
+        #[cfg(feature = "nvmeof-rdma")]
+        if let Some(ref rdma_config) = self.config.rdma {
+            if rdma_config.enabled {
+                let target = self.clone();
+                let rdma_internal_config = RdmaConfig {
+                    device_name: rdma_config.device.clone(),
+                    port_num: rdma_config.port,
+                    gid_index: 0,
+                    max_send_wr: rdma_config.send_wr,
+                    max_recv_wr: rdma_config.recv_wr,
+                    max_sge: rdma_config.max_sge,
+                    max_inline_data: rdma_config.inline_data_size,
+                    mr_size: rdma_config.mr_size,
+                    use_srq: rdma_config.use_srq,
+                    srq_size: rdma_config.srq_size,
+                    cq_size: rdma_config.cq_size,
+                    use_device_memory: false,
+                    enable_zero_copy: true,
+                    simulation: Default::default(),
+                };
+                let mut transport = RdmaTransport::new(rdma_internal_config);
+                transport.bind(bind_addr).await?;
+
+                // Register listen address with discovery
+                self.discovery
+                    .add_listen_addr(TransportType::Rdma, bind_addr);
+
+                // Spawn accept loop
+                let shutdown_rx = self.shutdown_tx.subscribe();
+                tokio::spawn(async move {
+                    target.accept_loop(transport, shutdown_rx).await;
+                });
+
+                info!("RDMA transport listening on {}", bind_addr);
+            }
+        }
 
         Ok(())
     }
@@ -502,5 +583,65 @@ mod tests {
         // Get subsystem
         let subsystem = target.get_subsystem(&nqn).unwrap();
         assert_eq!(subsystem.nqn(), &nqn);
+    }
+
+    #[cfg(feature = "nvmeof-quic")]
+    #[tokio::test]
+    async fn test_target_with_quic_transport() {
+        use super::super::config::NvmeOfQuicConfig;
+
+        let config = NvmeOfConfig {
+            quic: Some(NvmeOfQuicConfig {
+                enabled: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let target = NvmeOfTarget::new(config).await.unwrap();
+
+        // Verify QUIC config is present
+        assert!(target.config().quic.is_some());
+        assert!(target.config().quic.as_ref().unwrap().enabled);
+    }
+
+    #[cfg(feature = "nvmeof-rdma")]
+    #[tokio::test]
+    async fn test_target_with_rdma_transport() {
+        use super::super::config::NvmeOfRdmaConfig;
+
+        let config = NvmeOfConfig {
+            rdma: Some(NvmeOfRdmaConfig {
+                enabled: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let target = NvmeOfTarget::new(config).await.unwrap();
+
+        // Verify RDMA config is present
+        assert!(target.config().rdma.is_some());
+        assert!(target.config().rdma.as_ref().unwrap().enabled);
+    }
+
+    #[tokio::test]
+    async fn test_target_stats() {
+        let config = NvmeOfConfig::default();
+        let target = NvmeOfTarget::new(config).await.unwrap();
+
+        let stats = target.stats();
+        assert_eq!(stats.connections_accepted, 0);
+        assert_eq!(stats.commands_processed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_target_stop_when_not_running() {
+        let config = NvmeOfConfig::default();
+        let target = NvmeOfTarget::new(config).await.unwrap();
+
+        // Stopping when not running should be a no-op
+        target.stop().await.unwrap();
+        assert!(!target.is_running());
     }
 }

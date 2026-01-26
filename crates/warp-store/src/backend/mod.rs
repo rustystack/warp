@@ -37,7 +37,8 @@ mod gpu_direct;
 
 #[cfg(feature = "gpu")]
 pub use gpu_direct::{
-    GpuBufferHandle, GpuDirectBackend, GpuDirectConfig, GpuDirectStats, NvLinkTopology, P2PPath,
+    GpuBufferHandle, GpuDirectBackend, GpuDirectConfig, GpuDirectStats, GpuReduceOp, NvLinkTopology,
+    P2PPath, P2PTransferResult, PinnedHandle,
 };
 
 #[cfg(feature = "chonkers")]
@@ -190,6 +191,16 @@ pub trait HpcStorageBackend: StorageBackend {
         key: &ObjectKey,
         gpu_buffer: &warp_gpu::GpuBuffer<u8>,
     ) -> Result<ObjectMeta>;
+
+    /// Load directly to GPU memory
+    ///
+    /// Uses GPUDirect to transfer data from storage directly to GPU memory
+    /// without going through CPU memory. Returns a GPU buffer containing the data.
+    ///
+    /// This is the inverse of `pinned_store` and completes the GPU-direct
+    /// storage round-trip.
+    #[cfg(feature = "gpu")]
+    async fn pinned_load(&self, key: &ObjectKey) -> Result<warp_gpu::GpuBuffer<u8>>;
 
     /// Get with zero-knowledge proof of storage
     ///

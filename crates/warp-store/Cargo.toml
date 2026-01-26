@@ -17,8 +17,10 @@ gpu = ["warp-gpu"]
 raft = ["openraft", "sled"]
 # CRDTs for conflict-free eventual consistency and geo-replication
 crdt = ["warp-crdt"]
-# WireGuard tunnel management (currently simulated - boringtun has x25519-dalek version conflict)
+# WireGuard tunnel management (simulated mode)
 wireguard = []
+# WireGuard with real encryption via boringtun-warp fork
+wireguard-native = ["wireguard", "boringtun-warp"]
 # RMPI collective operations for distributed storage
 rmpi = ["dep:rmpi"]
 # HPC-Channels integration for event publishing
@@ -57,6 +59,7 @@ sled = { workspace = true, optional = true }
 rmpi = { workspace = true, optional = true }
 hpc-channels = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
+boringtun-warp = { workspace = true, optional = true }
 
 # Async runtime
 tokio = { workspace = true }
@@ -113,7 +116,21 @@ tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"
 tempfile = { workspace = true }
 proptest = { workspace = true }
 criterion = { version = "0.5", features = ["async_tokio"] }
+loom = "0.7"
+shuttle = "0.7"
 
 [[bench]]
 name = "storage"
 harness = false
+
+[[test]]
+name = "healer_loom"
+path = "tests/healer_loom.rs"
+
+[[test]]
+name = "scrub_shuttle"
+path = "tests/scrub_shuttle.rs"
+
+[[test]]
+name = "arbiter_shuttle"
+path = "tests/arbiter_shuttle.rs"

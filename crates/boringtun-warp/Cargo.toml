@@ -1,0 +1,39 @@
+[package]
+name = "boringtun-warp"
+version = "0.7.1"
+edition = "2024"
+rust-version = "1.92"
+license = "BSD-3-Clause"
+description = "WireGuard implementation for WARP (forked from boringtun with stable dependencies)"
+repository = "https://github.com/yourusername/warp"
+keywords = ["wireguard", "vpn", "tunnel", "encryption", "network"]
+categories = ["network-programming", "cryptography"]
+
+[features]
+default = []
+# Enable jitter for timing to prevent timing attacks
+jitter = []
+
+[dependencies]
+# Cryptography - updated to stable versions compatible with WARP
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+aead = "0.5"
+blake2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Utilities
+parking_lot = "0.12"
+tracing = "0.1"
+base64 = "0.22"
+hex = "0.4"
+thiserror = "2.0"
+
+# Time handling
+# Note: Not using ring for HKDF - using hmac+blake2 instead for compatibility
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+rand = "0.8"

@@ -24,6 +24,7 @@ pub mod paths;
 pub mod reoptimize;
 pub mod saturation;
 pub mod scheduler;
+pub mod slai_integration;
 pub mod state;
 pub mod types;
 
@@ -33,7 +34,11 @@ pub use balance::{
 };
 pub use brain_link::{
     BrainLink, BrainLinkStats, ChunkPlacement, ChunkPlacementRequest, CommunicationPattern,
-    EdgeNodeInfo, NetworkLink, TransportType,
+    DpuCapabilities, DpuType, EdgeNodeInfo, NetworkLink, TransportType,
+};
+pub use slai_integration::{
+    SlaiCombinedMetrics, SlaiIntegrationConfig, SlaiIntegrationStats, SlaiSchedulingIntegration,
+    UnifiedPlacement, UnifiedPlacementRequest, WorkloadType as SchedWorkloadType,
 };
 pub use constraints::{
     ConstraintEvaluator, ConstraintViolation, CostConstraint, EdgeConstraints, PolicyEngine,

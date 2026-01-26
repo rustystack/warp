@@ -39,6 +39,7 @@ members = [
     "crates/warp-gpu-mem",
     "crates/warp-tensor",
     "crates/warp-crdt",
+    "crates/boringtun-warp",
 ]
 
 [workspace.package]
@@ -93,6 +94,7 @@ warp-block = { path = "crates/warp-block" }
 warp-gpu-mem = { path = "crates/warp-gpu-mem" }
 warp-tensor = { path = "crates/warp-tensor" }
 warp-crdt = { path = "crates/warp-crdt" }
+boringtun-warp = { path = "crates/boringtun-warp" }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
@@ -119,8 +121,8 @@ ed25519-dalek = { version = "2.1", features = ["rand_core", "serde"] }
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 argon2 = "0.5"
 rand = "0.8"
-# Note: boringtun requires x25519-dalek 2.0.0-rc.3 which conflicts with stable 2.0.x
-# WireGuard feature uses simulated tunnels until boringtun updates dependencies
+# WireGuard support via boringtun-warp fork with stable dependencies
+# Enable wireguard-native feature in warp-store for real WireGuard encryption
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

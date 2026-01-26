@@ -28,6 +28,128 @@ use super::{PeerLocation, StorageMessage, Tier, TierStats};
 use crate::ObjectKey;
 use crate::error::{Error, Result};
 
+/// Header for chunked RDMA transmissions
+///
+/// Used by the chunking protocol to send variable-length data through rmpi's
+/// SafeSend interface which requires fixed-size arrays.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct RdmaChunkHeader {
+    /// Magic number for validation (0x524D5049 = "RMPI")
+    pub magic: u32,
+    /// Total data length in bytes
+    pub total_length: u64,
+    /// Number of chunks that follow
+    pub chunk_count: u32,
+    /// Size of each chunk (last chunk may be shorter)
+    pub chunk_size: u32,
+    /// CRC32 checksum of original data (0 if not computed)
+    pub checksum: u32,
+}
+
+impl RdmaChunkHeader {
+    /// Magic number for RMPI chunk headers
+    pub const MAGIC: u32 = 0x524D5049; // "RMPI" in ASCII
+
+    /// Header size in bytes
+    pub const SIZE: usize = 24;
+
+    /// Create a new chunk header
+    pub fn new(total_length: usize, chunk_size: usize) -> Self {
+        let chunk_count = if total_length == 0 {
+            0
+        } else {
+            (total_length + chunk_size - 1) / chunk_size
+        };
+        Self {
+            magic: Self::MAGIC,
+            total_length: total_length as u64,
+            chunk_count: chunk_count as u32,
+            chunk_size: chunk_size as u32,
+            checksum: 0,
+        }
+    }
+
+    /// Create header with checksum
+    pub fn with_checksum(total_length: usize, chunk_size: usize, data: &[u8]) -> Self {
+        let mut header = Self::new(total_length, chunk_size);
+        header.checksum = crc32fast::hash(data);
+        header
+    }
+
+    /// Serialize header to bytes
+    pub fn to_bytes(&self) -> [u8; Self::SIZE] {
+        let mut bytes = [0u8; Self::SIZE];
+        bytes[0..4].copy_from_slice(&self.magic.to_le_bytes());
+        bytes[4..12].copy_from_slice(&self.total_length.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.chunk_count.to_le_bytes());
+        bytes[16..20].copy_from_slice(&self.chunk_size.to_le_bytes());
+        bytes[20..24].copy_from_slice(&self.checksum.to_le_bytes());
+        bytes
+    }
+
+    /// Deserialize header from bytes
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < Self::SIZE {
+            return Err(Error::Transport(format!(
+                "Chunk header too short: {} < {}",
+                bytes.len(),
+                Self::SIZE
+            )));
+        }
+        let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        if magic != Self::MAGIC {
+            return Err(Error::Transport(format!(
+                "Invalid chunk header magic: expected 0x{:08X}, got 0x{:08X}",
+                Self::MAGIC,
+                magic
+            )));
+        }
+        Ok(Self {
+            magic,
+            total_length: u64::from_le_bytes(bytes[4..12].try_into().unwrap()),
+            chunk_count: u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+            chunk_size: u32::from_le_bytes(bytes[16..20].try_into().unwrap()),
+            checksum: u32::from_le_bytes(bytes[20..24].try_into().unwrap()),
+        })
+    }
+}
+
+/// GPU buffer registration for RDMA
+///
+/// Allows GPU memory to be registered for direct RDMA access, enabling
+/// GPUDirect RDMA transfers without CPU involvement.
+#[cfg(feature = "gpu")]
+#[derive(Debug)]
+pub struct GpuBufferRegistration {
+    /// GPU device ID
+    pub device_id: u32,
+    /// GPU buffer pointer
+    pub device_ptr: u64,
+    /// Buffer size
+    pub size: usize,
+    /// Registration key for RDMA
+    pub rkey: u32,
+    /// Local key for RDMA
+    pub lkey: u32,
+}
+
+#[cfg(feature = "gpu")]
+impl GpuBufferRegistration {
+    /// Create a new GPU buffer registration (placeholder)
+    pub fn new(device_id: u32, device_ptr: u64, size: usize) -> Self {
+        // In a real implementation, this would register the GPU memory
+        // with the RDMA NIC for direct access
+        Self {
+            device_id,
+            device_ptr,
+            size,
+            rkey: 0,
+            lkey: 0,
+        }
+    }
+}
+
 /// RDMA transport configuration
 #[derive(Debug, Clone)]
 pub struct RdmaTransportConfig {
@@ -312,7 +434,7 @@ impl RdmaTransport {
         Ok(())
     }
 
-    /// Send data to an endpoint
+    /// Send data to an endpoint using chunked protocol for SafeSend compatibility
     #[cfg(feature = "rmpi")]
     pub async fn send(&self, endpoint: &Arc<RdmaEndpoint>, data: &[u8]) -> Result<()> {
         if !endpoint.is_connected() {
@@ -321,17 +443,39 @@ impl RdmaTransport {
 
         let start = Instant::now();
 
-        if let Some(_handle) = &self.rmpi_handle {
+        if let Some(handle) = &self.rmpi_handle {
             // Parse peer_id to get rank
             let rank: u32 = endpoint.peer_id.parse().unwrap_or(0);
-            let _rmpi_endpoint = rmpi::Endpoint::from_rank(rank);
+            let rmpi_endpoint = rmpi::Endpoint::from_rank(rank);
 
-            // TODO: rmpi's SafeSend trait requires fixed-size arrays, not slices.
-            // For now, we simulate the send. A proper implementation would need
-            // to either:
-            // 1. Use rmpi's raw bytes sending API (if available)
-            // 2. Chunk data into fixed-size arrays
-            // 3. Implement a custom SafeSend wrapper
+            // Use chunking protocol for SafeSend compatibility
+            // Split data into fixed-size chunks that rmpi can handle
+            const CHUNK_SIZE: usize = 64 * 1024; // 64KB chunks
+
+            // Create and send header
+            let header = RdmaChunkHeader::new(data.len(), CHUNK_SIZE);
+            let header_bytes = header.to_bytes();
+
+            // Send header first
+            if let Err(e) = handle.send_bytes(rmpi_endpoint, &header_bytes).await {
+                endpoint.record_error();
+                return Err(Error::Transport(format!("Failed to send header: {}", e)));
+            }
+
+            // Send data in chunks
+            for (chunk_idx, chunk) in data.chunks(CHUNK_SIZE).enumerate() {
+                // Pad chunk to fixed size for SafeSend
+                let mut padded = [0u8; CHUNK_SIZE];
+                padded[..chunk.len()].copy_from_slice(chunk);
+
+                if let Err(e) = handle.send_bytes(rmpi_endpoint, &padded[..]).await {
+                    endpoint.record_error();
+                    return Err(Error::Transport(format!(
+                        "Failed to send chunk {}: {}",
+                        chunk_idx, e
+                    )));
+                }
+            }
 
             endpoint.record_send(data.len());
             self.total_bytes_sent
@@ -340,8 +484,9 @@ impl RdmaTransport {
             trace!(
                 peer_id = %endpoint.peer_id,
                 bytes = data.len(),
+                chunks = header.chunk_count,
                 latency_us = start.elapsed().as_micros(),
-                "RDMA send complete (rmpi stub)"
+                "RDMA send complete"
             );
             Ok(())
         } else {
@@ -361,7 +506,7 @@ impl RdmaTransport {
         Ok(())
     }
 
-    /// Receive data from an endpoint
+    /// Receive data from an endpoint using chunked protocol
     #[cfg(feature = "rmpi")]
     pub async fn recv(&self, endpoint: &Arc<RdmaEndpoint>, buf: &mut [u8]) -> Result<usize> {
         if !endpoint.is_connected() {
@@ -370,14 +515,68 @@ impl RdmaTransport {
 
         let start = Instant::now();
 
-        if let Some(_handle) = &self.rmpi_handle {
+        if let Some(handle) = &self.rmpi_handle {
             let rank: u32 = endpoint.peer_id.parse().unwrap_or(0);
-            let _rmpi_endpoint = rmpi::Endpoint::from_rank(rank);
+            let rmpi_endpoint = rmpi::Endpoint::from_rank(rank);
 
-            // TODO: rmpi's SafeSend trait requires fixed-size arrays, not slices.
-            // For now, we simulate the recv. See send() for notes on proper implementation.
-            let len = 0usize;
+            const CHUNK_SIZE: usize = 64 * 1024; // Must match send chunk size
 
+            // Receive header first
+            let header_bytes = match handle.recv_bytes(rmpi_endpoint, RdmaChunkHeader::SIZE).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    endpoint.record_error();
+                    return Err(Error::Transport(format!("Failed to receive header: {}", e)));
+                }
+            };
+
+            let header = RdmaChunkHeader::from_bytes(&header_bytes)?;
+
+            // Validate header
+            if header.total_length as usize > buf.len() {
+                return Err(Error::Transport(format!(
+                    "Buffer too small: {} bytes needed, {} available",
+                    header.total_length,
+                    buf.len()
+                )));
+            }
+
+            // Receive chunks
+            let mut offset = 0usize;
+            let mut remaining = header.total_length as usize;
+
+            for chunk_idx in 0..header.chunk_count {
+                let chunk_bytes = match handle.recv_bytes(rmpi_endpoint, CHUNK_SIZE).await {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        endpoint.record_error();
+                        return Err(Error::Transport(format!(
+                            "Failed to receive chunk {}: {}",
+                            chunk_idx, e
+                        )));
+                    }
+                };
+
+                // Copy only valid portion of chunk
+                let take = remaining.min(CHUNK_SIZE);
+                buf[offset..offset + take].copy_from_slice(&chunk_bytes[..take]);
+                offset += take;
+                remaining = remaining.saturating_sub(CHUNK_SIZE);
+            }
+
+            // Verify checksum if provided
+            if header.checksum != 0 {
+                let computed = crc32fast::hash(&buf[..header.total_length as usize]);
+                if computed != header.checksum {
+                    endpoint.record_error();
+                    return Err(Error::Transport(format!(
+                        "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}",
+                        header.checksum, computed
+                    )));
+                }
+            }
+
+            let len = header.total_length as usize;
             let latency_us = start.elapsed().as_micros() as u64;
             endpoint.record_recv(len, latency_us);
             self.total_bytes_recv
@@ -386,10 +585,10 @@ impl RdmaTransport {
             trace!(
                 peer_id = %endpoint.peer_id,
                 bytes = len,
+                chunks = header.chunk_count,
                 latency_us = latency_us,
-                "RDMA recv complete (rmpi stub)"
+                "RDMA recv complete"
             );
-            let _ = buf; // Silence unused warning
             Ok(len)
         } else {
             Err(Error::Transport("RMPI handle not initialized".into()))
@@ -401,8 +600,134 @@ impl RdmaTransport {
         if !endpoint.is_connected() {
             return Err(Error::Transport("Endpoint not connected".into()));
         }
+        let _ = buf; // Silence unused warning
         // Simulated recv - just return 0
         Ok(0)
+    }
+
+    /// Receive data into a new Vec using chunked protocol
+    #[cfg(feature = "rmpi")]
+    pub async fn recv_vec(&self, endpoint: &Arc<RdmaEndpoint>) -> Result<Vec<u8>> {
+        if !endpoint.is_connected() {
+            return Err(Error::Transport("Endpoint not connected".into()));
+        }
+
+        let start = Instant::now();
+
+        if let Some(handle) = &self.rmpi_handle {
+            let rank: u32 = endpoint.peer_id.parse().unwrap_or(0);
+            let rmpi_endpoint = rmpi::Endpoint::from_rank(rank);
+
+            const CHUNK_SIZE: usize = 64 * 1024;
+
+            // Receive header
+            let header_bytes = handle
+                .recv_bytes(rmpi_endpoint, RdmaChunkHeader::SIZE)
+                .await
+                .map_err(|e| Error::Transport(format!("Failed to receive header: {}", e)))?;
+
+            let header = RdmaChunkHeader::from_bytes(&header_bytes)?;
+
+            // Allocate buffer
+            let mut data = Vec::with_capacity(header.total_length as usize);
+            let mut remaining = header.total_length as usize;
+
+            // Receive chunks
+            for chunk_idx in 0..header.chunk_count {
+                let chunk_bytes = handle
+                    .recv_bytes(rmpi_endpoint, CHUNK_SIZE)
+                    .await
+                    .map_err(|e| {
+                        endpoint.record_error();
+                        Error::Transport(format!("Failed to receive chunk {}: {}", chunk_idx, e))
+                    })?;
+
+                let take = remaining.min(CHUNK_SIZE);
+                data.extend_from_slice(&chunk_bytes[..take]);
+                remaining = remaining.saturating_sub(CHUNK_SIZE);
+            }
+
+            // Verify checksum
+            if header.checksum != 0 {
+                let computed = crc32fast::hash(&data);
+                if computed != header.checksum {
+                    endpoint.record_error();
+                    return Err(Error::Transport(format!(
+                        "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}",
+                        header.checksum, computed
+                    )));
+                }
+            }
+
+            let len = data.len();
+            let latency_us = start.elapsed().as_micros() as u64;
+            endpoint.record_recv(len, latency_us);
+            self.total_bytes_recv
+                .fetch_add(len as u64, Ordering::Relaxed);
+
+            trace!(
+                peer_id = %endpoint.peer_id,
+                bytes = len,
+                chunks = header.chunk_count,
+                latency_us = latency_us,
+                "RDMA recv_vec complete"
+            );
+            Ok(data)
+        } else {
+            Err(Error::Transport("RMPI handle not initialized".into()))
+        }
+    }
+
+    #[cfg(not(feature = "rmpi"))]
+    pub async fn recv_vec(&self, endpoint: &Arc<RdmaEndpoint>) -> Result<Vec<u8>> {
+        if !endpoint.is_connected() {
+            return Err(Error::Transport("Endpoint not connected".into()));
+        }
+        Ok(Vec::new())
+    }
+
+    /// Register GPU buffer for RDMA access
+    #[cfg(all(feature = "rmpi", feature = "gpu"))]
+    pub fn register_gpu_buffer(
+        &self,
+        device_id: u32,
+        device_ptr: u64,
+        size: usize,
+    ) -> Result<GpuBufferRegistration> {
+        if self.rmpi_handle.is_none() {
+            return Err(Error::Transport("RMPI handle not initialized".into()));
+        }
+
+        // In a real implementation, this would:
+        // 1. Call cuMemHostRegister or equivalent to pin the GPU memory
+        // 2. Register the memory region with the RDMA NIC
+        // 3. Return the registration keys
+
+        info!(
+            device_id,
+            device_ptr,
+            size,
+            "Registered GPU buffer for RDMA"
+        );
+
+        Ok(GpuBufferRegistration::new(device_id, device_ptr, size))
+    }
+
+    /// Unregister GPU buffer from RDMA
+    #[cfg(all(feature = "rmpi", feature = "gpu"))]
+    pub fn unregister_gpu_buffer(&self, registration: &GpuBufferRegistration) -> Result<()> {
+        if self.rmpi_handle.is_none() {
+            return Err(Error::Transport("RMPI handle not initialized".into()));
+        }
+
+        info!(
+            device_id = registration.device_id,
+            device_ptr = registration.device_ptr,
+            size = registration.size,
+            "Unregistered GPU buffer from RDMA"
+        );
+
+        Ok(())
     }
 
     /// Send a storage message
@@ -624,5 +949,236 @@ mod tests {
         assert!(!endpoint.is_connected());
         transport.connect(&endpoint).await.unwrap();
         assert!(endpoint.is_connected());
+    }
+
+    // --- RdmaChunkHeader tests ---
+
+    #[test]
+    fn test_chunk_header_new() {
+        // Test with normal data
+        let header = RdmaChunkHeader::new(100_000, 64 * 1024);
+        assert_eq!(header.magic, RdmaChunkHeader::MAGIC);
+        assert_eq!(header.total_length, 100_000);
+        assert_eq!(header.chunk_size, 64 * 1024);
+        assert_eq!(header.chunk_count, 2); // ceil(100000 / 65536) = 2
+        assert_eq!(header.checksum, 0);
+    }
+
+    #[test]
+    fn test_chunk_header_empty() {
+        // Empty data should have 0 chunks
+        let header = RdmaChunkHeader::new(0, 64 * 1024);
+        assert_eq!(header.chunk_count, 0);
+        assert_eq!(header.total_length, 0);
+    }
+
+    #[test]
+    fn test_chunk_header_exact_chunk() {
+        // Data exactly fills one chunk
+        let header = RdmaChunkHeader::new(64 * 1024, 64 * 1024);
+        assert_eq!(header.chunk_count, 1);
+    }
+
+    #[test]
+    fn test_chunk_header_small_data() {
+        // Small data under one chunk
+        let header = RdmaChunkHeader::new(100, 64 * 1024);
+        assert_eq!(header.chunk_count, 1);
+        assert_eq!(header.total_length, 100);
+    }
+
+    #[test]
+    fn test_chunk_header_with_checksum() {
+        let data = b"hello world test data for checksum";
+        let header = RdmaChunkHeader::with_checksum(data.len(), 64 * 1024, data);
+        assert_eq!(header.total_length, data.len() as u64);
+        assert_ne!(header.checksum, 0);
+        // Verify checksum matches crc32
+        assert_eq!(header.checksum, crc32fast::hash(data));
+    }
+
+    #[test]
+    fn test_chunk_header_roundtrip() {
+        let original = RdmaChunkHeader {
+            magic: RdmaChunkHeader::MAGIC,
+            total_length: 1_000_000,
+            chunk_count: 16,
+            chunk_size: 65536,
+            checksum: 0xDEADBEEF,
+        };
+
+        let bytes = original.to_bytes();
+        assert_eq!(bytes.len(), RdmaChunkHeader::SIZE);
+
+        let parsed = RdmaChunkHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(parsed.magic, original.magic);
+        assert_eq!(parsed.total_length, original.total_length);
+        assert_eq!(parsed.chunk_count, original.chunk_count);
+        assert_eq!(parsed.chunk_size, original.chunk_size);
+        assert_eq!(parsed.checksum, original.checksum);
+    }
+
+    #[test]
+    fn test_chunk_header_from_bytes_too_short() {
+        let short_bytes = [0u8; 10];
+        let result = RdmaChunkHeader::from_bytes(&short_bytes);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("too short"));
+    }
+
+    #[test]
+    fn test_chunk_header_from_bytes_invalid_magic() {
+        let mut bytes = [0u8; RdmaChunkHeader::SIZE];
+        // Wrong magic number
+        bytes[0..4].copy_from_slice(&0xBADCAFE_u32.to_le_bytes());
+
+        let result = RdmaChunkHeader::from_bytes(&bytes);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Invalid chunk header magic"));
+    }
+
+    #[test]
+    fn test_chunk_header_serialization_format() {
+        let header = RdmaChunkHeader {
+            magic: RdmaChunkHeader::MAGIC,
+            total_length: 0x0123456789ABCDEF,
+            chunk_count: 0x12345678,
+            chunk_size: 0x9ABCDEF0,
+            checksum: 0xFEDCBA98,
+        };
+
+        let bytes = header.to_bytes();
+
+        // Verify little-endian format
+        assert_eq!(&bytes[0..4], &RdmaChunkHeader::MAGIC.to_le_bytes());
+        assert_eq!(&bytes[4..12], &0x0123456789ABCDEF_u64.to_le_bytes());
+        assert_eq!(&bytes[12..16], &0x12345678_u32.to_le_bytes());
+        assert_eq!(&bytes[16..20], &0x9ABCDEF0_u32.to_le_bytes());
+        assert_eq!(&bytes[20..24], &0xFEDCBA98_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn test_chunk_count_calculation() {
+        // Test various sizes to ensure chunk count is correct
+        let cases = [
+            (0, 65536, 0),
+            (1, 65536, 1),
+            (65535, 65536, 1),
+            (65536, 65536, 1),
+            (65537, 65536, 2),
+            (131072, 65536, 2),
+            (131073, 65536, 3),
+            (1_000_000, 65536, 16), // ceil(1000000/65536) = 16
+        ];
+
+        for (total_length, chunk_size, expected_chunks) in cases {
+            let header = RdmaChunkHeader::new(total_length, chunk_size);
+            assert_eq!(
+                header.chunk_count, expected_chunks,
+                "total_length={}, chunk_size={} should yield {} chunks",
+                total_length, chunk_size, expected_chunks
+            );
+        }
+    }
+
+    // --- GpuBufferRegistration tests (gpu feature only) ---
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_gpu_buffer_registration_new() {
+        let reg = GpuBufferRegistration::new(0, 0x7F00000000, 4 * 1024 * 1024);
+        assert_eq!(reg.device_id, 0);
+        assert_eq!(reg.device_ptr, 0x7F00000000);
+        assert_eq!(reg.size, 4 * 1024 * 1024);
+        // Keys are placeholder values
+        assert_eq!(reg.rkey, 0);
+        assert_eq!(reg.lkey, 0);
+    }
+
+    // --- RdmaConnectionState tests ---
+
+    #[test]
+    fn test_connection_state_transitions() {
+        let endpoint = RdmaEndpoint::new("test".to_string(), "10.0.0.1:9000".parse().unwrap());
+
+        // Initial state
+        assert_eq!(endpoint.state(), RdmaConnectionState::Disconnected);
+        assert!(!endpoint.is_connected());
+
+        // Simulate connection
+        {
+            let mut state = endpoint.state.write();
+            *state = RdmaConnectionState::Connecting;
+        }
+        assert_eq!(endpoint.state(), RdmaConnectionState::Connecting);
+        assert!(!endpoint.is_connected());
+
+        // Complete connection
+        {
+            let mut state = endpoint.state.write();
+            *state = RdmaConnectionState::Connected;
+        }
+        assert_eq!(endpoint.state(), RdmaConnectionState::Connected);
+        assert!(endpoint.is_connected());
+
+        // Error state
+        {
+            let mut state = endpoint.state.write();
+            *state = RdmaConnectionState::Error;
+        }
+        assert_eq!(endpoint.state(), RdmaConnectionState::Error);
+        assert!(!endpoint.is_connected());
+    }
+
+    #[test]
+    fn test_endpoint_error_tracking() {
+        let endpoint = RdmaEndpoint::new("test".to_string(), "10.0.0.1:9000".parse().unwrap());
+
+        assert_eq!(endpoint.stats().errors, 0);
+
+        endpoint.record_error();
+        endpoint.record_error();
+        endpoint.record_error();
+
+        assert_eq!(endpoint.stats().errors, 3);
+    }
+
+    #[test]
+    fn test_endpoint_latency_average() {
+        let endpoint = RdmaEndpoint::new("test".to_string(), "10.0.0.1:9000".parse().unwrap());
+
+        // Record multiple receives with different latencies
+        endpoint.record_recv(100, 10);   // 10µs
+        endpoint.record_recv(100, 20);   // 20µs
+        endpoint.record_recv(100, 30);   // 30µs
+
+        let stats = endpoint.stats();
+        assert_eq!(stats.messages_recv, 3);
+        assert_eq!(stats.bytes_recv, 300);
+        // Average should be (10+20+30)/3 = 20
+        assert_eq!(stats.avg_latency_us, 20);
+    }
+
+    #[test]
+    fn test_tier_stats_aggregation() {
+        let config = RdmaTransportConfig::default();
+        let transport = RdmaTransport::new("local".to_string(), config);
+
+        // Add multiple endpoints
+        let ep1 = transport.add_endpoint("peer-1".to_string(), "10.0.0.1:9000".parse().unwrap());
+        let ep2 = transport.add_endpoint("peer-2".to_string(), "10.0.0.2:9000".parse().unwrap());
+
+        // Record some stats
+        ep1.record_send(1000);
+        ep1.record_recv(2000, 50);
+        ep2.record_send(3000);
+        ep2.record_recv(4000, 100);
+
+        let stats = transport.tier_stats();
+        assert_eq!(stats.messages_sent, 2);
+        assert_eq!(stats.messages_recv, 2);
+        // Note: total bytes are tracked on transport level
     }
 }

@@ -72,7 +72,12 @@ pub use autotier::{
 };
 pub use backend::{HpcStorageBackend, StorageBackend};
 pub use bucket::{Bucket, BucketConfig, BucketPolicy};
-pub use collective::{CollectiveAdapter, CollectiveContext, Rank, StorageCollectiveOps};
+pub use collective::{
+    AllReduceConfig, AllReduceResult, CollectiveAdapter, CollectiveContext, DistributionPattern,
+    GatherResult, Rank, ReduceOperation, ScatterConfig, ScatterResult, StorageCollectiveOps,
+};
+#[cfg(feature = "rmpi")]
+pub use collective::{RmpiCollectiveAdapter, SafeSendChunker, ChunkHeader};
 #[cfg(feature = "raft")]
 pub use consistency::{NodeId, ObjectMetadataEntry, RaftMetrics, RaftStore, RaftStoreConfig};
 pub use ephemeral::{AccessScope, EphemeralToken, Permissions, RateLimit};
@@ -594,6 +599,180 @@ impl<B: StorageBackend> Store<B> {
     #[cfg(feature = "raft")]
     pub fn raft_store(&self) -> Option<&Arc<RaftStore>> {
         self.raft_store.as_ref()
+    }
+
+    // =========================================================================
+    // Collective Storage Operations (HPC support)
+    // =========================================================================
+
+    /// Scatter objects from root to all ranks
+    ///
+    /// Root rank distributes objects to all participants. Each rank receives
+    /// the object at index `rank` from the keys array.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let keys = vec![
+    ///     ObjectKey::new("bucket", "shard-0")?,
+    ///     ObjectKey::new("bucket", "shard-1")?,
+    ///     ObjectKey::new("bucket", "shard-2")?,
+    ///     ObjectKey::new("bucket", "shard-3")?,
+    /// ];
+    ///
+    /// let my_data = store.scatter_objects(&ctx, &keys, ScatterConfig::default()).await?;
+    /// ```
+    pub async fn scatter_objects(
+        &self,
+        ctx: &CollectiveContext,
+        keys: &[ObjectKey],
+        config: ScatterConfig,
+    ) -> Result<ScatterResult> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.scatter_objects(ctx, keys, config).await
+    }
+
+    /// Gather objects from all ranks to root
+    ///
+    /// All ranks contribute their local object, root receives all objects.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let my_key = ObjectKey::new("bucket", &format!("shard-{}", ctx.rank().id()))?;
+    /// let all_data = store.gather_objects(&ctx, &my_key).await?;
+    /// ```
+    pub async fn gather_objects(
+        &self,
+        ctx: &CollectiveContext,
+        key: &ObjectKey,
+    ) -> Result<GatherResult> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.gather_objects(ctx, key).await
+    }
+
+    /// Broadcast an object from root to all ranks
+    ///
+    /// Root sends the same object to all participants.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let config_key = ObjectKey::new("bucket", "shared-config.json")?;
+    /// let config_data = store.broadcast_object(&ctx, &config_key).await?;
+    /// ```
+    pub async fn broadcast_object(
+        &self,
+        ctx: &CollectiveContext,
+        key: &ObjectKey,
+    ) -> Result<ObjectData> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.broadcast_object(ctx, key).await
+    }
+
+    /// All-gather: Each rank shares its object with all other ranks
+    ///
+    /// Every rank ends up with a copy of all objects from all ranks.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let my_key = ObjectKey::new("bucket", &format!("local-{}", ctx.rank().id()))?;
+    /// let all_data = store.all_gather(&ctx, &my_key).await?;
+    /// // all_data contains objects from all ranks
+    /// ```
+    pub async fn all_gather(
+        &self,
+        ctx: &CollectiveContext,
+        key: &ObjectKey,
+    ) -> Result<Vec<ObjectData>> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.all_gather(ctx, key).await
+    }
+
+    /// Barrier: Wait for all ranks to reach this point
+    ///
+    /// Synchronization primitive that blocks until all ranks have called barrier.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// store.barrier(&ctx).await?;
+    /// // All ranks have reached this point
+    /// ```
+    pub async fn barrier(&self, ctx: &CollectiveContext) -> Result<()> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.barrier(ctx).await
+    }
+
+    /// All-reduce: Combine values from all ranks using a reduction operation
+    ///
+    /// Each rank contributes data, the reduction operation is applied, and all
+    /// ranks receive the result. Useful for distributed gradient aggregation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let local_gradients = store.get(&gradient_key).await?;
+    /// let config = AllReduceConfig {
+    ///     operation: ReduceOperation::Sum,
+    ///     in_place: false,
+    ///     element_size: 4, // f32
+    /// };
+    /// let result = store.all_reduce(&ctx, &local_gradients, config).await?;
+    /// // result.data contains the sum of all gradients
+    /// ```
+    pub async fn all_reduce(
+        &self,
+        ctx: &CollectiveContext,
+        local_data: &ObjectData,
+        config: AllReduceConfig,
+    ) -> Result<AllReduceResult> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.all_reduce(ctx, local_data, config).await
+    }
+
+    /// Reduce-scatter: Reduce then scatter result
+    ///
+    /// Combines all-reduce with scatter - reduces values from all ranks,
+    /// then distributes different portions of the result to each rank.
+    /// Efficient for ring all-reduce implementations.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let local_data = store.get(&data_key).await?;
+    /// let config = AllReduceConfig {
+    ///     operation: ReduceOperation::Sum,
+    ///     ..Default::default()
+    /// };
+    /// let my_portion = store.reduce_scatter(&ctx, &local_data, config).await?;
+    /// ```
+    pub async fn reduce_scatter(
+        &self,
+        ctx: &CollectiveContext,
+        local_data: &ObjectData,
+        config: AllReduceConfig,
+    ) -> Result<ObjectData> {
+        let adapter = CollectiveAdapter::new(self.backend.clone());
+        adapter.reduce_scatter(ctx, local_data, config).await
+    }
+
+    /// Create a collective adapter for advanced operations
+    ///
+    /// Returns a `CollectiveAdapter` that can be used for more complex
+    /// collective patterns or when rmpi is available.
+    pub fn collective_adapter(&self) -> CollectiveAdapter<B> {
+        CollectiveAdapter::new(self.backend.clone())
+    }
+
+    /// Create an RMPI-backed collective adapter (requires rmpi feature)
+    ///
+    /// Returns an `RmpiCollectiveAdapter` for true distributed collective
+    /// operations using RDMA transport.
+    #[cfg(feature = "rmpi")]
+    pub fn rmpi_collective_adapter(&self) -> RmpiCollectiveAdapter<B> {
+        RmpiCollectiveAdapter::new(self.backend.clone())
     }
 }
 

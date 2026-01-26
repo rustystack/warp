@@ -34,6 +34,7 @@
 pub mod config;
 pub mod dfs;
 pub mod error;
+pub mod handler;
 pub mod oplocks;
 pub mod protocol;
 pub mod security;

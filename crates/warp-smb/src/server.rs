@@ -7,13 +7,14 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::net::TcpListener;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use warp_gateway_common::{InMemoryLockManager, SessionManager};
 use warp_store::Store;
 
 use crate::config::SmbConfig;
 use crate::error::SmbResult;
+use crate::handler::SmbConnectionHandler;
 use crate::oplocks::OplockManager;
 use crate::share::{ShareManager, SmbShare};
 
@@ -94,11 +95,20 @@ impl SmbServer {
                 Ok((stream, addr)) => {
                     debug!("Accepted connection from {}", addr);
                     // Handle connection in background
-                    let _server = self.clone_for_connection();
+                    let server = self.clone_for_connection();
                     tokio::spawn(async move {
-                        // TODO: Handle SMB protocol connection
-                        let _ = stream;
-                        debug!("Connection handler for {} started", addr);
+                        let mut handler = SmbConnectionHandler::new(
+                            server.config,
+                            server.store,
+                            server.lock_manager,
+                            server.session_manager,
+                            server.oplock_manager,
+                            server.share_manager,
+                        );
+                        if let Err(e) = handler.handle_connection(stream).await {
+                            error!("SMB connection error from {}: {}", addr, e);
+                        }
+                        debug!("Connection from {} closed", addr);
                     });
                 }
                 Err(e) => {

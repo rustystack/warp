@@ -86,6 +86,32 @@ pub struct AutoTierConfig {
 
     /// Enable GPU pinning for inference workloads
     pub enable_gpu_pinning: bool,
+
+    // ========================================================================
+    // BrainLink DPU Integration
+    // ========================================================================
+
+    /// Enable DPU-aware tiering decisions
+    ///
+    /// When enabled, the tiering engine considers DPU capabilities when making
+    /// decisions. For example, objects that benefit from inline compression or
+    /// encryption may be preferentially stored on DPU-enabled nodes.
+    pub enable_dpu_awareness: bool,
+
+    /// Prefer DPU inline compression for large objects
+    ///
+    /// When DPU is available, objects larger than this threshold may be
+    /// compressed inline during tier transitions for faster movement.
+    pub dpu_compress_threshold: u64,
+
+    /// Prefer DPU inline encryption for sensitive data
+    ///
+    /// When enabled, objects in sensitive prefixes will be preferentially
+    /// stored on DPU nodes with inline encryption.
+    pub dpu_encrypt_prefixes: Vec<String>,
+
+    /// Minimum chunk size for DPU offload (bytes)
+    pub min_dpu_chunk_size: u64,
 }
 
 impl Default for AutoTierConfig {
@@ -105,6 +131,11 @@ impl Default for AutoTierConfig {
             ],
             min_object_size: 1024, // 1KB minimum
             enable_gpu_pinning: true,
+            // DPU integration defaults
+            enable_dpu_awareness: true,
+            dpu_compress_threshold: 1024 * 1024, // 1MB
+            dpu_encrypt_prefixes: vec!["secrets/".to_string(), "credentials/".to_string()],
+            min_dpu_chunk_size: 64 * 1024, // 64KB
         }
     }
 }
@@ -176,6 +207,12 @@ pub struct AutoTierStats {
     pub evaluated_at: DateTime<Utc>,
     /// Total objects scanned
     pub objects_scanned: u64,
+    /// Transitions using DPU inline processing
+    pub dpu_transitions: u64,
+    /// Transitions using DPU compression
+    pub dpu_compressed: u64,
+    /// Transitions using DPU encryption
+    pub dpu_encrypted: u64,
 }
 
 /// Tiering decision for an object
@@ -191,6 +228,24 @@ pub struct TierDecision {
     pub reason: TierReason,
     /// Confidence in decision (0.0-1.0)
     pub confidence: f64,
+    /// Use DPU inline processing for this transition
+    ///
+    /// When true, the transition should use DPU inline compression/encryption
+    /// if available. This is determined by BrainLink integration.
+    pub use_dpu_inline: bool,
+    /// Recommended DPU operations
+    pub dpu_ops: DpuOpsHint,
+}
+
+/// Hints for DPU inline operations during tier transitions
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DpuOpsHint {
+    /// Use DPU inline compression
+    pub compress: bool,
+    /// Use DPU inline encryption
+    pub encrypt: bool,
+    /// Use DPU inline erasure coding
+    pub erasure_code: bool,
 }
 
 /// Reason for a tiering decision
@@ -350,11 +405,15 @@ impl AutoTierEngine {
             total.protected_skipped += stats.protected_skipped;
             total.errors += stats.errors;
             total.objects_scanned += stats.objects_scanned;
+            total.dpu_transitions += stats.dpu_transitions;
+            total.dpu_compressed += stats.dpu_compressed;
+            total.dpu_encrypted += stats.dpu_encrypted;
         }
 
         info!(
             promotions = stats.promotions,
             demotions = stats.demotions,
+            dpu_transitions = stats.dpu_transitions,
             duration_ms = stats.duration_ms,
             "Auto-tiering evaluation complete"
         );
@@ -422,12 +481,18 @@ impl AutoTierEngine {
                 };
 
             if current_class != target_class {
+                // Determine DPU hints based on config and object characteristics
+                let dpu_ops = self.compute_dpu_hints(&key, target_class);
+                let use_dpu = self.config.enable_dpu_awareness && dpu_ops.compress;
+
                 decisions.push(TierDecision {
                     key,
                     current_class,
                     target_class,
                     reason,
                     confidence: 0.8,
+                    use_dpu_inline: use_dpu,
+                    dpu_ops,
                 });
             }
         }
@@ -460,6 +525,8 @@ impl AutoTierEngine {
                         accesses_per_day: access_rate,
                     },
                     confidence: 0.9,
+                    use_dpu_inline: false, // No DPU for promotions
+                    dpu_ops: DpuOpsHint::default(),
                 });
             }
         }
@@ -497,6 +564,8 @@ impl AutoTierEngine {
                                 target_class: StorageClass::GpuPinned,
                                 reason: TierReason::InferenceModel,
                                 confidence: 0.85,
+                                use_dpu_inline: false, // GPU pinning doesn't need DPU
+                                dpu_ops: DpuOpsHint::default(),
                             });
                             stats.objects_scanned += 1;
                         }
@@ -515,6 +584,73 @@ impl AutoTierEngine {
             || key.ends_with(".pth")
             || key.ends_with(".safetensors")
             || key.ends_with(".onnx")
+    }
+
+    /// Compute DPU operation hints for a tier transition
+    ///
+    /// Determines which DPU inline operations should be used based on:
+    /// - Object characteristics (size, prefix)
+    /// - Target storage class
+    /// - Configuration settings
+    fn compute_dpu_hints(&self, key: &str, target_class: StorageClass) -> DpuOpsHint {
+        if !self.config.enable_dpu_awareness {
+            return DpuOpsHint::default();
+        }
+
+        let mut hints = DpuOpsHint::default();
+
+        // Enable compression for archive transitions (cold storage)
+        if target_class == StorageClass::Archive || target_class == StorageClass::InfrequentAccess {
+            // Check if object stats indicate it's compressible
+            // (For now, enable compression for all demotions)
+            hints.compress = true;
+        }
+
+        // Enable encryption for sensitive prefixes
+        for prefix in &self.config.dpu_encrypt_prefixes {
+            if key.starts_with(prefix) {
+                hints.encrypt = true;
+                break;
+            }
+        }
+
+        // Enable erasure coding for archive tier (for durability)
+        if target_class == StorageClass::Archive {
+            hints.erasure_code = true;
+        }
+
+        hints
+    }
+
+    /// Check if DPU inline processing is recommended for an object
+    ///
+    /// This method considers:
+    /// - Object size (must be above threshold)
+    /// - Workload type (checkpointing benefits most)
+    /// - Target storage class
+    pub fn should_use_dpu(&self, key: &str, size: u64, target_class: StorageClass) -> bool {
+        if !self.config.enable_dpu_awareness {
+            return false;
+        }
+
+        // Check size threshold
+        if size < self.config.min_dpu_chunk_size {
+            return false;
+        }
+
+        // Always use DPU for archive transitions of large objects
+        if target_class == StorageClass::Archive && size >= self.config.dpu_compress_threshold {
+            return true;
+        }
+
+        // Use DPU for encryption-required prefixes
+        for prefix in &self.config.dpu_encrypt_prefixes {
+            if key.starts_with(prefix) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Check if object is protected from tiering
@@ -610,6 +746,9 @@ impl AutoTierEngine {
                 from = ?decision.current_class,
                 to = ?decision.target_class,
                 reason = ?decision.reason,
+                use_dpu = decision.use_dpu_inline,
+                dpu_compress = decision.dpu_ops.compress,
+                dpu_encrypt = decision.dpu_ops.encrypt,
                 "DRY RUN: Would transition object"
             );
         } else {
@@ -618,6 +757,7 @@ impl AutoTierEngine {
                 from = ?decision.current_class,
                 to = ?decision.target_class,
                 reason = ?decision.reason,
+                use_dpu = decision.use_dpu_inline,
                 "Transitioning object"
             );
 
@@ -626,6 +766,19 @@ impl AutoTierEngine {
 
             // TODO: Actually move data between storage tiers when backend supports it
             // For now, we track the assignment and emit metrics
+            // When BrainLink integration is complete, this will use DPU inline
+            // processing based on decision.use_dpu_inline and decision.dpu_ops
+        }
+
+        // Track DPU usage
+        if decision.use_dpu_inline {
+            stats.dpu_transitions += 1;
+            if decision.dpu_ops.compress {
+                stats.dpu_compressed += 1;
+            }
+            if decision.dpu_ops.encrypt {
+                stats.dpu_encrypted += 1;
+            }
         }
 
         // Update stats
@@ -884,11 +1037,15 @@ impl<B: StorageBackend> AutoTierExecutor<B> {
             total.protected_skipped += stats.protected_skipped;
             total.errors += stats.errors;
             total.objects_scanned += stats.objects_scanned;
+            total.dpu_transitions += stats.dpu_transitions;
+            total.dpu_compressed += stats.dpu_compressed;
+            total.dpu_encrypted += stats.dpu_encrypted;
         }
 
         info!(
             promotions = stats.promotions,
             demotions = stats.demotions,
+            dpu_transitions = stats.dpu_transitions,
             duration_ms = stats.duration_ms,
             "Auto-tiering evaluation with data movement complete"
         );

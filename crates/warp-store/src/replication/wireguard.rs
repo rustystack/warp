@@ -1,8 +1,11 @@
 //! WireGuard tunnel management for cross-domain transport
 //!
 //! Provides secure tunnel infrastructure between storage domains.
-//! Currently uses simulated tunnels; real WireGuard encryption will be
-//! added when boringtun updates its x25519-dalek dependency to stable 2.0.x.
+//!
+//! # Feature Flags
+//!
+//! - `wireguard`: Basic tunnel management with simulated encryption
+//! - `wireguard-native`: Real WireGuard encryption via boringtun-warp
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -13,7 +16,19 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 use tokio::sync::{RwLock, mpsc};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
+
+#[cfg(feature = "wireguard-native")]
+use boringtun_warp::noise::{Tunn, TunnResult};
+
+/// Helper enum for process_incoming results (used with wireguard-native feature)
+#[cfg(feature = "wireguard-native")]
+enum ProcessResult {
+    SendResponse(Bytes),
+    Data(Bytes),
+    Done { handshake_complete: bool },
+    Error(String),
+}
 
 use super::DomainId;
 use crate::error::{Error, Result};
@@ -171,6 +186,10 @@ pub struct WireGuardTunnel {
 
     /// Receive channel for incoming data
     recv_rx: Arc<RwLock<mpsc::Receiver<Bytes>>>,
+
+    /// Real WireGuard tunnel (when wireguard-native feature is enabled)
+    #[cfg(feature = "wireguard-native")]
+    tunn: Arc<parking_lot::Mutex<Tunn>>,
 }
 
 impl std::fmt::Debug for WireGuardTunnel {
@@ -186,6 +205,7 @@ impl std::fmt::Debug for WireGuardTunnel {
 
 impl WireGuardTunnel {
     /// Create a new tunnel (internal)
+    #[cfg(not(feature = "wireguard-native"))]
     fn new(
         domain_id: DomainId,
         peer_pubkey: [u8; 32],
@@ -206,6 +226,45 @@ impl WireGuardTunnel {
             last_activity: now,
             send_tx,
             recv_rx: Arc::new(RwLock::new(recv_rx)),
+        }
+    }
+
+    /// Create a new tunnel with real WireGuard encryption (internal)
+    #[cfg(feature = "wireguard-native")]
+    fn new(
+        domain_id: DomainId,
+        peer_pubkey: [u8; 32],
+        endpoint: SocketAddr,
+        virtual_ip: std::net::Ipv4Addr,
+        send_tx: mpsc::Sender<Bytes>,
+        recv_rx: mpsc::Receiver<Bytes>,
+        static_private: x25519_dalek::StaticSecret,
+    ) -> Self {
+        let now = Instant::now();
+
+        // Create the boringtun tunnel
+        let peer_public = boringtun_warp::x25519::PublicKey::from(peer_pubkey);
+        let tunn = Tunn::new(
+            static_private.into(),
+            peer_public,
+            None,                         // preshared key
+            Some(25),                     // persistent keepalive (25 seconds)
+            domain_id.try_into().unwrap_or(0),
+        )
+        .expect("Failed to create WireGuard tunnel");
+
+        Self {
+            domain_id,
+            peer_pubkey,
+            endpoint,
+            virtual_ip,
+            status: TunnelStatus::Connecting,
+            stats: TunnelStats::default(),
+            created_at: now,
+            last_activity: now,
+            send_tx,
+            recv_rx: Arc::new(RwLock::new(recv_rx)),
+            tunn: Arc::new(parking_lot::Mutex::new(tunn)),
         }
     }
 
@@ -454,8 +513,9 @@ impl WireGuardTunnelManager {
 
     /// Establish a tunnel to a remote domain
     ///
-    /// Currently uses simulated tunnels. Real WireGuard encryption will be added
-    /// when boringtun updates its x25519-dalek dependency to stable 2.0.x.
+    /// When `wireguard-native` feature is enabled, uses real WireGuard encryption.
+    /// Otherwise uses simulated tunnels for testing.
+    #[cfg(not(feature = "wireguard-native"))]
     pub async fn connect(
         &self,
         domain_id: DomainId,
@@ -471,7 +531,7 @@ impl WireGuardTunnelManager {
             return Err(Error::WireGuard("max tunnels reached".to_string()));
         }
 
-        info!(domain_id, %endpoint, "Establishing WireGuard tunnel");
+        info!(domain_id, %endpoint, "Establishing WireGuard tunnel (simulated)");
 
         // Create channels for data transfer
         let (send_tx, _send_rx) = mpsc::channel(1024);
@@ -488,7 +548,97 @@ impl WireGuardTunnelManager {
         let tunnel = Arc::new(RwLock::new(tunnel));
         self.tunnels.insert(domain_id, tunnel);
 
-        info!(domain_id, ?vip, "WireGuard tunnel established");
+        info!(domain_id, ?vip, "WireGuard tunnel established (simulated)");
+        Ok(())
+    }
+
+    /// Establish a tunnel to a remote domain with real WireGuard encryption
+    #[cfg(feature = "wireguard-native")]
+    pub async fn connect(
+        &self,
+        domain_id: DomainId,
+        peer_pubkey: [u8; 32],
+        endpoint: SocketAddr,
+    ) -> Result<()> {
+        if self.tunnels.contains_key(&domain_id) {
+            debug!(domain_id, "Tunnel already exists");
+            return Ok(());
+        }
+
+        if self.tunnels.len() >= self.config.max_tunnels {
+            return Err(Error::WireGuard("max tunnels reached".to_string()));
+        }
+
+        info!(domain_id, %endpoint, "Establishing WireGuard tunnel (native)");
+
+        // Create channels for data transfer
+        let (send_tx, _send_rx) = mpsc::channel(1024);
+        let (_recv_tx, recv_rx) = mpsc::channel(1024);
+
+        let vip = self.allocate_vip();
+
+        // Create tunnel with our static key
+        let static_private = x25519_dalek::StaticSecret::from(self.keypair.private_key);
+        let mut tunnel = WireGuardTunnel::new(
+            domain_id,
+            peer_pubkey,
+            endpoint,
+            vip,
+            send_tx,
+            recv_rx,
+            static_private,
+        );
+        tunnel.status = TunnelStatus::Handshaking;
+
+        let tunnel = Arc::new(RwLock::new(tunnel));
+        self.tunnels.insert(domain_id, tunnel.clone());
+
+        // Initiate handshake
+        self.initiate_handshake(domain_id, &tunnel).await?;
+
+        info!(domain_id, ?vip, "WireGuard tunnel handshake initiated");
+        Ok(())
+    }
+
+    /// Initiate WireGuard handshake
+    #[cfg(feature = "wireguard-native")]
+    async fn initiate_handshake(
+        &self,
+        domain_id: DomainId,
+        tunnel: &Arc<RwLock<WireGuardTunnel>>,
+    ) -> Result<()> {
+        let mut dst = vec![0u8; 256];
+
+        let (endpoint, data_to_send) = {
+            let t = tunnel.read().await;
+            let mut tunn = t.tunn.lock();
+
+            match tunn.format_handshake_initiation(&mut dst, false) {
+                TunnResult::WriteToNetwork(data) => (t.endpoint, Bytes::copy_from_slice(data)),
+                TunnResult::Err(e) => {
+                    warn!(domain_id, error = ?e, "Failed to create handshake initiation");
+                    return Err(Error::WireGuard(format!("handshake init failed: {:?}", e)));
+                }
+                _ => return Ok(()),
+            }
+        };
+
+        // Send handshake initiation via UDP
+        self.send_raw(endpoint, &data_to_send).await?;
+
+        debug!(domain_id, "Sent handshake initiation");
+        Ok(())
+    }
+
+    /// Send raw UDP data
+    #[cfg(feature = "wireguard-native")]
+    async fn send_raw(&self, endpoint: SocketAddr, data: &[u8]) -> Result<()> {
+        let socket = self.socket.read().await;
+        if let Some(ref sock) = *socket {
+            sock.send_to(data, endpoint)
+                .await
+                .map_err(|e| Error::WireGuard(format!("send failed: {}", e)))?;
+        }
         Ok(())
     }
 
@@ -613,10 +763,8 @@ impl WireGuardTunnelManager {
         t.recv().await
     }
 
-    /// Process incoming UDP packet
-    ///
-    /// Currently a stub - real packet decryption will be added when boringtun
-    /// updates its x25519-dalek dependency to stable 2.0.x.
+    /// Process incoming UDP packet (simulated mode)
+    #[cfg(not(feature = "wireguard-native"))]
     pub async fn process_incoming(
         &self,
         src: SocketAddr,
@@ -638,6 +786,138 @@ impl WireGuardTunnelManager {
         }
 
         Ok(None)
+    }
+
+    /// Process incoming UDP packet with real WireGuard decryption
+    #[cfg(feature = "wireguard-native")]
+    pub async fn process_incoming(
+        &self,
+        src: SocketAddr,
+        packet: &[u8],
+    ) -> Result<Option<(DomainId, Bytes)>> {
+        // Find the tunnel for this source
+        for entry in self.tunnels.iter() {
+            let domain_id = *entry.key();
+            let tunnel = entry.value();
+
+            // Check if this tunnel matches the source
+            let endpoint_matches = {
+                let t = tunnel.read().await;
+                t.endpoint == src
+            };
+
+            if !endpoint_matches {
+                continue;
+            }
+
+            // Process the packet with the Tunn
+            let mut dst = vec![0u8; packet.len() + 32];
+            let result = {
+                let t = tunnel.read().await;
+                let mut tunn = t.tunn.lock();
+                // Process and capture the result type and any data we need
+                match tunn.decapsulate(Some(src.ip()), packet, &mut dst) {
+                    TunnResult::WriteToNetwork(data) => {
+                        ProcessResult::SendResponse(Bytes::copy_from_slice(data))
+                    }
+                    TunnResult::WriteToTunnelV4(data, _) | TunnResult::WriteToTunnelV6(data, _) => {
+                        ProcessResult::Data(Bytes::copy_from_slice(data))
+                    }
+                    TunnResult::Done => {
+                        let handshake_complete = tunn.time_since_last_handshake().is_some();
+                        ProcessResult::Done { handshake_complete }
+                    }
+                    TunnResult::Err(e) => ProcessResult::Error(format!("{:?}", e)),
+                }
+            };
+
+            // Now handle the result with mutable access to tunnel state
+            match result {
+                ProcessResult::SendResponse(data) => {
+                    self.send_raw(src, &data).await?;
+                    trace!(domain_id, "Sent WireGuard response");
+                    return Ok(None);
+                }
+                ProcessResult::Data(data) => {
+                    let mut t = tunnel.write().await;
+                    t.stats.bytes_received += data.len() as u64;
+                    t.stats.packets_received += 1;
+                    t.last_activity = Instant::now();
+
+                    if t.status == TunnelStatus::Handshaking {
+                        t.status = TunnelStatus::Connected;
+                        t.stats.last_handshake = Some(Instant::now());
+                        t.stats.handshake_count += 1;
+                        info!(domain_id, "WireGuard handshake completed");
+                    }
+
+                    return Ok(Some((domain_id, data)));
+                }
+                ProcessResult::Done { handshake_complete } => {
+                    if handshake_complete {
+                        let mut t = tunnel.write().await;
+                        if t.status == TunnelStatus::Handshaking {
+                            t.status = TunnelStatus::Connected;
+                            t.stats.last_handshake = Some(Instant::now());
+                            t.stats.handshake_count += 1;
+                            info!(domain_id, "WireGuard handshake completed");
+                        }
+                    }
+                    trace!(domain_id, "WireGuard packet processed (no data)");
+                    return Ok(None);
+                }
+                ProcessResult::Error(e) => {
+                    warn!(domain_id, error = %e, "WireGuard decrypt error");
+                    let mut t = tunnel.write().await;
+                    t.stats.failed_handshakes += 1;
+                    return Ok(None);
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+
+    /// Encrypt and send data through a tunnel
+    #[cfg(feature = "wireguard-native")]
+    pub async fn send_encrypted(&self, domain_id: DomainId, data: &[u8]) -> Result<()> {
+        let tunnel = self
+            .tunnels
+            .get(&domain_id)
+            .ok_or_else(|| Error::WireGuard(format!("tunnel {} not found", domain_id)))?;
+
+        let (endpoint, encrypted) = {
+            let t = tunnel.read().await;
+            if !t.is_connected() {
+                return Err(Error::WireGuard("tunnel not connected".to_string()));
+            }
+
+            let mut dst = vec![0u8; data.len() + 64]; // Extra space for WireGuard overhead
+            let mut tunn = t.tunn.lock();
+
+            match tunn.encapsulate(data, &mut dst) {
+                TunnResult::WriteToNetwork(encrypted_data) => {
+                    (t.endpoint, Bytes::copy_from_slice(encrypted_data))
+                }
+                TunnResult::Err(e) => {
+                    return Err(Error::WireGuard(format!("encryption failed: {:?}", e)));
+                }
+                _ => return Ok(()),
+            }
+        };
+
+        self.send_raw(endpoint, &encrypted).await?;
+
+        // Update stats
+        {
+            let mut t = tunnel.write().await;
+            t.stats.bytes_sent += data.len() as u64;
+            t.stats.packets_sent += 1;
+            t.last_activity = Instant::now();
+        }
+
+        Ok(())
     }
 
     /// List all active tunnels
@@ -813,6 +1093,8 @@ mod tests {
         assert_eq!(config.max_handshake_retries, 3);
     }
 
+    // This test only works in simulated mode where tunnels connect immediately
+    #[cfg(not(feature = "wireguard-native"))]
     #[tokio::test]
     async fn test_tunnel_manager() {
         let manager = WireGuardTunnelManager::new(WireGuardConfig::default());
@@ -835,6 +1117,32 @@ mod tests {
         // Disconnect
         manager.disconnect(1).await.unwrap();
         assert!(!manager.is_connected(1).await);
+    }
+
+    // Test that native mode creates tunnels in handshaking state
+    #[cfg(feature = "wireguard-native")]
+    #[tokio::test]
+    async fn test_tunnel_manager() {
+        let manager = WireGuardTunnelManager::new(WireGuardConfig::default());
+
+        // Connect to a domain
+        let peer_pubkey = [1u8; 32];
+        let endpoint: SocketAddr = "127.0.0.1:51821".parse().unwrap();
+
+        manager.connect(1, peer_pubkey, endpoint).await.unwrap();
+
+        // Tunnel exists but may be in handshaking state
+        assert_eq!(manager.tunnel_count(), 1);
+
+        // Check tunnel info
+        let info = manager.tunnel_info(1).await.unwrap();
+        assert_eq!(info.domain_id, 1);
+        assert_eq!(info.endpoint, endpoint);
+        // In native mode, tunnel starts in Handshaking state
+        assert!(matches!(info.status, TunnelStatus::Handshaking));
+
+        // Disconnect
+        manager.disconnect(1).await.unwrap();
     }
 
     #[test]
@@ -903,6 +1211,8 @@ mod tests {
         assert_eq!(t1.domain_id, t2.domain_id);
     }
 
+    // This test only works in simulated mode where handshakes complete immediately
+    #[cfg(not(feature = "wireguard-native"))]
     #[tokio::test]
     async fn test_aggregate_stats() {
         let manager = WireGuardTunnelManager::new(WireGuardConfig::default());
@@ -918,6 +1228,27 @@ mod tests {
         assert_eq!(stats.handshake_count, 3);
     }
 
+    // Native mode test for aggregate stats
+    #[cfg(feature = "wireguard-native")]
+    #[tokio::test]
+    async fn test_aggregate_stats() {
+        let manager = WireGuardTunnelManager::new(WireGuardConfig::default());
+
+        // Create multiple tunnels
+        for i in 1..=3 {
+            let peer_pubkey = [i as u8; 32];
+            let endpoint: SocketAddr = format!("127.0.0.1:5182{}", i).parse().unwrap();
+            manager.connect(i, peer_pubkey, endpoint).await.unwrap();
+        }
+
+        // In native mode, handshakes haven't completed yet
+        let stats = manager.aggregate_stats().await;
+        assert_eq!(stats.handshake_count, 0);
+        assert_eq!(manager.tunnel_count(), 3);
+    }
+
+    // This test only works in simulated mode where tunnels are immediately connected
+    #[cfg(not(feature = "wireguard-native"))]
     #[tokio::test]
     async fn test_healthy_tunnels() {
         let manager = WireGuardTunnelManager::new(WireGuardConfig::default());
@@ -940,5 +1271,24 @@ mod tests {
         let healthy = manager.healthy_tunnels().await;
         assert_eq!(healthy.len(), 1);
         assert_eq!(healthy[0], 1);
+    }
+
+    // Native mode test for healthy tunnels
+    #[cfg(feature = "wireguard-native")]
+    #[tokio::test]
+    async fn test_healthy_tunnels() {
+        let manager = WireGuardTunnelManager::new(WireGuardConfig::default());
+
+        // Create tunnel (will be in handshaking state)
+        let peer_pubkey = [1u8; 32];
+        let endpoint: SocketAddr = "127.0.0.1:51821".parse().unwrap();
+        manager.connect(1, peer_pubkey, endpoint).await.unwrap();
+
+        // Handshaking tunnels are not healthy
+        let healthy = manager.healthy_tunnels().await;
+        assert_eq!(healthy.len(), 0);
+
+        // Verify tunnel exists
+        assert_eq!(manager.tunnel_count(), 1);
     }
 }
