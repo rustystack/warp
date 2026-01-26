@@ -314,6 +314,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assoc"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdc70193dadb9d7287fa4b633f15f90c876915b31f6af17da307fc59c9859a8"
+
+[[package]]
 name = "async-compression"
 version = "0.4.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2280,6 +2286,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "generator"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52f04ae4152da20c76fe800fa48659201d5cf627c5149ca0b707b69d7eef6cf9"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "log",
+ "rustversion",
+ "windows-link",
+ "windows-result",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3208,6 +3229,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
+name = "loom"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+dependencies = [
+ "cfg-if",
+ "generator",
+ "scoped-tls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3781,6 +3815,7 @@ dependencies = [
  "ort-sys",
  "smallvec",
  "tracing",
+ "ureq",
 ]
 
 [[package]]
@@ -3799,6 +3834,12 @@ name = "outref"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
+
+[[package]]
+name = "owo-colors"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
 
 [[package]]
 name = "page_size"
@@ -4523,6 +4564,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_pcg"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59cad018caf63deb318e5a4586d99a24424a364f40f1e5778c29aca23f4fc73e"
+dependencies = [
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "rand_xorshift"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5125,6 +5175,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5326,6 +5382,25 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "shuttle"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9a8db61a44e2b663f169a08206a789bcbd22ba32011e14951562848e7b9c98"
+dependencies = [
+ "assoc",
+ "bitvec",
+ "generator",
+ "hex",
+ "owo-colors",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "rand_pcg",
+ "scoped-tls",
+ "smallvec",
+ "tracing",
+]
 
 [[package]]
 name = "signal-hook-registry"
@@ -6245,9 +6320,12 @@ dependencies = [
  "base64 0.22.1",
  "log",
  "percent-encoding",
+ "rustls 0.23.36",
+ "rustls-pki-types",
  "socks",
  "ureq-proto",
  "utf-8",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -6941,6 +7019,7 @@ dependencies = [
  "dashmap 6.1.0",
  "ipnet",
  "parking_lot 0.12.5",
+ "rand 0.8.5",
  "serde",
  "tempfile",
  "thiserror 2.0.17",
@@ -7065,6 +7144,7 @@ dependencies = [
  "hex",
  "hpc-channels",
  "ipnet",
+ "loom",
  "openraft",
  "parking_lot 0.12.5",
  "portal-core",
@@ -7078,6 +7158,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "shuttle",
  "sled",
  "tempfile",
  "thiserror 2.0.17",
@@ -7288,6 +7369,15 @@ name = "webpki-root-certs"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36a29fc0408b113f68cf32637857ab740edfafdf460c326cd2afaa2d84cc05dc"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12bed680863276c63889429bfd6cab3b99943659923822de1c8a39c49e4d722c"
 dependencies = [
  "rustls-pki-types",
 ]

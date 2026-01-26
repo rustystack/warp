@@ -376,12 +376,18 @@ impl Session {
 }
 
 fn generate_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_nanos();
-    format!("{:x}", now)
+    // Add monotonic counter to avoid collisions when sessions are created in rapid succession
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{:x}-{:x}", now, counter)
 }
 
 #[cfg(test)]

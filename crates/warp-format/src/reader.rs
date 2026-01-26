@@ -129,10 +129,10 @@ impl WarpReader {
     /// Call this method after opening if you need fast chunk verification
     /// but didn't use `open_with_verification`.
     pub fn build_verification_tree(&mut self) {
-        debug_assert!(
-            !self.chunk_index.is_empty(),
-            "chunk_index should not be empty when building verification tree"
-        );
+        // Handle empty archives gracefully - no tree needed
+        if self.chunk_index.is_empty() {
+            return;
+        }
 
         let hashes: Vec<[u8; 32]> = (0..self.chunk_index.len())
             .map(|i| self.chunk_index.get(i).unwrap().hash)
@@ -223,15 +223,16 @@ impl WarpReader {
     pub fn verify_random_sample(&self, sample_size: usize) -> Result<(usize, usize)> {
         use rand::seq::SliceRandom;
 
+        // Handle empty archives gracefully - no verification needed
+        if self.chunk_index.is_empty() {
+            return Ok((0, 0));
+        }
+
         let tree = self.sparse_tree.as_ref().ok_or_else(|| {
             Error::Corrupted(
                 "Verification tree not built. Call build_verification_tree() first".into(),
             )
         })?;
-
-        if self.chunk_index.is_empty() {
-            return Ok((0, 0));
-        }
 
         let actual_sample = sample_size.min(self.chunk_index.len());
         let mut rng = rand::thread_rng();

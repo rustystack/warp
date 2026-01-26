@@ -1,0 +1,8 @@
+# Clippy Configuration for WARP Project
+# This allows certain pedantic lints that would require extensive refactoring
+
+# Allow type complexity for internal types
+type-complexity-threshold = 500
+
+# Allow longer function parameters
+too-many-arguments-threshold = 10
