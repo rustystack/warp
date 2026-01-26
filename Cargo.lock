@@ -4169,6 +4169,7 @@ dependencies = [
  "chrono",
  "dashmap 6.1.0",
  "hex",
+ "loom",
  "mdns-sd",
  "portal-core",
  "proptest",
@@ -4176,6 +4177,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
+ "shuttle 0.8.1",
  "tempfile",
  "test-case",
  "thiserror 2.0.17",
@@ -5391,6 +5393,26 @@ checksum = "2d9a8db61a44e2b663f169a08206a789bcbd22ba32011e14951562848e7b9c98"
 dependencies = [
  "assoc",
  "bitvec",
+ "generator",
+ "hex",
+ "owo-colors",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "rand_pcg",
+ "scoped-tls",
+ "smallvec",
+ "tracing",
+]
+
+[[package]]
+name = "shuttle"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ab17edba38d63047f46780cf7360acf7467fec2c048928689a5c1dd1c2b4e31"
+dependencies = [
+ "assoc",
+ "bitvec",
+ "cfg-if",
  "generator",
  "hex",
  "owo-colors",
@@ -7158,7 +7180,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "shuttle",
+ "shuttle 0.7.1",
  "sled",
  "tempfile",
  "thiserror 2.0.17",

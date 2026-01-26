@@ -15,8 +15,10 @@ pub const POLICY_VERSION: &str = "2012-10-17";
 /// Policy effect - Allow or Deny
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Effect {
+    /// Allow the action
     #[serde(rename = "Allow")]
     Allow,
+    /// Deny the action
     #[serde(rename = "Deny")]
     Deny,
 }
@@ -85,16 +87,19 @@ pub enum PrincipalSpec {
     Wildcard(String),
     /// AWS-style principal map
     Aws {
+        /// AWS principal identifier(s)
         #[serde(rename = "AWS")]
         aws: PrincipalList,
     },
     /// Federated principal
     Federated {
+        /// Federated identity provider identifier(s)
         #[serde(rename = "Federated")]
         federated: PrincipalList,
     },
     /// Service principal
     Service {
+        /// Service principal identifier(s)
         #[serde(rename = "Service")]
         service: PrincipalList,
     },
@@ -104,7 +109,9 @@ pub enum PrincipalSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PrincipalList {
+    /// Single principal identifier
     Single(String),
+    /// Multiple principal identifiers
     Multiple(Vec<String>),
 }
 
@@ -152,31 +159,54 @@ impl PrincipalSpec {
     }
 }
 
-/// Condition operator
+/// Condition operator for policy evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConditionOperator {
+    /// Exact string match
     StringEquals,
+    /// String does not match
     StringNotEquals,
+    /// Case-insensitive string match
     StringEqualsIgnoreCase,
+    /// Glob-style string pattern match
     StringLike,
+    /// String does not match glob pattern
     StringNotLike,
+    /// Numeric equality
     NumericEquals,
+    /// Numeric inequality
     NumericNotEquals,
+    /// Numeric less than
     NumericLessThan,
+    /// Numeric less than or equal
     NumericLessThanEquals,
+    /// Numeric greater than
     NumericGreaterThan,
+    /// Numeric greater than or equal
     NumericGreaterThanEquals,
+    /// Date equality
     DateEquals,
+    /// Date inequality
     DateNotEquals,
+    /// Date before
     DateLessThan,
+    /// Date before or equal
     DateLessThanEquals,
+    /// Date after
     DateGreaterThan,
+    /// Date after or equal
     DateGreaterThanEquals,
+    /// Boolean condition
     Bool,
+    /// IP address in CIDR range
     IpAddress,
+    /// IP address not in CIDR range
     NotIpAddress,
+    /// Exact ARN match
     ArnEquals,
+    /// ARN pattern match
     ArnLike,
+    /// Key is null/missing
     Null,
 }
 
@@ -393,7 +423,10 @@ pub enum AuthorizationDecision {
     /// Access is allowed
     Allow,
     /// Access is denied with reason
-    Deny { reason: String },
+    Deny {
+        /// The reason for denial (statement ID or description)
+        reason: String,
+    },
     /// No applicable policy found
     NotApplicable,
 }

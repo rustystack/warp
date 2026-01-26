@@ -33,7 +33,12 @@ pub enum Principal {
     Aws(String),
 
     /// Federated identity (from OIDC/SAML)
-    Federated { provider: String, subject: String },
+    Federated {
+        /// The identity provider (e.g., "google.com", "okta.com")
+        provider: String,
+        /// The subject identifier from the IdP
+        subject: String,
+    },
 
     /// Wildcard - matches everyone
     Wildcard,

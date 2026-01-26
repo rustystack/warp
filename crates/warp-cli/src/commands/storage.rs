@@ -18,15 +18,20 @@ use warp_store::{
 /// Alias configuration stored in config file
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AliasConfig {
+    /// Map of alias names to their configurations
     pub aliases: HashMap<String, AliasEntry>,
 }
 
 /// Individual alias entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AliasEntry {
+    /// Endpoint URL for the storage service
     pub url: String,
+    /// Access key for authentication
     pub access_key: Option<String>,
+    /// Secret key for authentication
     pub secret_key: Option<String>,
+    /// Root path prefix for all operations
     pub root_path: Option<String>,
 }
 

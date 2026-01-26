@@ -263,9 +263,19 @@ impl IamManagerBuilder {
 #[derive(Debug, Clone)]
 pub enum Credentials {
     /// Username and password
-    Password { username: String, password: String },
+    Password {
+        /// The username
+        username: String,
+        /// The password
+        password: String,
+    },
     /// OAuth authorization code
-    AuthorizationCode { code: String, redirect_uri: String },
+    AuthorizationCode {
+        /// The authorization code
+        code: String,
+        /// The redirect URI used in the OAuth flow
+        redirect_uri: String,
+    },
     /// OAuth access token
     AccessToken(String),
     /// API key

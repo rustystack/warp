@@ -635,7 +635,7 @@ impl IdentityProvider for LdapProvider {
     }
 }
 
-// Stub implementation when LDAP feature is not enabled
+/// Stub LDAP provider when the ldap feature is not enabled
 #[cfg(not(feature = "ldap"))]
 pub struct LdapProvider {
     config: LdapConfig,

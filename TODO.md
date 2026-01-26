@@ -19,9 +19,8 @@ All 8 passes of the fullcleanreview completed successfully:
 
 ### Documentation
 
-- [ ] Add doc comments to reduce `missing_docs` warnings
-  - Many struct fields and methods missing documentation
-  - Current lint level is `warn`, not blocking
+- [x] Add doc comments to reduce `missing_docs` warnings (DONE)
+  - Fixed 61 missing doc warnings across warp-iam, warp-cli, warp-gpu, warp-stream
 
 ### Build Optimization
 

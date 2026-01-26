@@ -13,6 +13,7 @@ pub mod completions;
 
 use clap::Parser;
 
+/// Main CLI application structure
 #[derive(Parser)]
 #[command(name = "warp")]
 #[command(author, version, about, long_about = None)]
@@ -22,10 +23,12 @@ pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
 
+    /// The subcommand to execute
     #[command(subcommand)]
     pub command: Commands,
 }
 
+/// Available CLI commands
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// Send files to a remote destination
@@ -120,6 +123,7 @@ pub enum Commands {
     },
     /// Real-time streaming encryption/decryption (pipe-based)
     Stream {
+        /// The stream action (encrypt or decrypt)
         #[command(subcommand)]
         action: StreamAction,
     },
@@ -230,18 +234,21 @@ pub enum Commands {
 
     /// Object retention management
     Retention {
+        /// The retention action (set, get, clear)
         #[command(subcommand)]
         action: RetentionAction,
     },
 
     /// Legal hold management
     LegalHold {
+        /// The legal hold action (set, clear, get)
         #[command(subcommand)]
         action: LegalHoldAction,
     },
 
     /// Set an alias for a storage endpoint
     Alias {
+        /// The alias action (set, remove, list)
         #[command(subcommand)]
         action: AliasAction,
     },

@@ -7,13 +7,21 @@ use std::fmt;
 pub enum StreamError {
     /// Pipeline stage timeout exceeded
     Timeout {
+        /// The pipeline stage that timed out
         stage: &'static str,
+        /// Time elapsed in milliseconds
         elapsed_ms: u64,
+        /// Configured timeout limit in milliseconds
         limit_ms: u64,
     },
 
     /// Backpressure limit exceeded
-    BackpressureExceeded { queue_size: usize, max_size: usize },
+    BackpressureExceeded {
+        /// Current queue size
+        queue_size: usize,
+        /// Maximum allowed queue size
+        max_size: usize,
+    },
 
     /// Channel closed unexpectedly
     ChannelClosed(&'static str),

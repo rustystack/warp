@@ -170,11 +170,17 @@ impl PoolConfig {
 /// Statistics for memory pool usage
 #[derive(Debug, Default, Clone)]
 pub struct PoolStatistics {
+    /// Total number of buffer allocations
     pub allocations: u64,
+    /// Total number of buffer deallocations
     pub deallocations: u64,
+    /// Number of times a cached buffer was reused
     pub cache_hits: u64,
+    /// Number of times a new buffer had to be allocated
     pub cache_misses: u64,
+    /// Current memory usage in bytes
     pub current_usage: usize,
+    /// Peak memory usage in bytes
     pub peak_usage: usize,
 }
 
