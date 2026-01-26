@@ -29,11 +29,9 @@ All 8 passes of the fullcleanreview completed successfully:
   - Trade-off: slower compile, smaller/faster binary
   - Current setting is a reasonable balance
 
-- [ ] Set up `cargo-deny` for supply chain security
+- [x] Set up `cargo-deny` for supply chain security (DONE)
   ```bash
-  cargo install cargo-deny
-  cargo deny init
-  cargo deny check
+  cargo deny check  # advisories ok, bans ok, licenses ok, sources ok
   ```
 
 - [ ] Run `cargo +nightly udeps` periodically to check for unused dependencies

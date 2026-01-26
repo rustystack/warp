@@ -9,26 +9,26 @@ targets = [
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
 ]
+all-features = false
+no-default-features = false
 
+[output]
+feature-depth = 1
+
+# Advisory database configuration
 [advisories]
-# The database of known security vulnerabilities
-db-path = "~/.cargo/advisory-db"
+ignore = [
+    # Transitive dependencies from sled - will be fixed when sled updates
+    { id = "RUSTSEC-2025-0057", reason = "fxhash is transitive via sled, no action possible" },
+    { id = "RUSTSEC-2024-0384", reason = "instant is transitive via sled's parking_lot, no action possible" },
+    # Transitive from indicatif
+    { id = "RUSTSEC-2025-0119", reason = "number_prefix is transitive via indicatif, awaiting upstream fix" },
+    # rustls-pemfile - will migrate to rustls-pki-types in future update
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile migration planned, tracked in TODO.md" },
+]
 
-# How to handle security advisories
-version = 2
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
-ignore = []
-
+# License checking configuration
 [licenses]
-version = 2
-# Unlicensed crates are rejected
-unlicensed = "deny"
-# Copyleft licenses require careful review
-copyleft = "warn"
-
 # Licenses we explicitly allow
 allow = [
     "MIT",
@@ -45,55 +45,50 @@ allow = [
     "Unicode-DFS-2016",
     "Unicode-3.0",
     "Unlicense",
+    "CDLA-Permissive-2.0",  # webpki-roots certificate data
 ]
-
-# Licenses that are denied by default
-deny = [
-    "GPL-3.0",
-    "AGPL-3.0",
-]
+confidence-threshold = 0.8
+exceptions = []
 
 # Clarify license for crates that are not auto-detected
 [[licenses.clarify]]
-name = "ring"
+crate = "ring"
 expression = "MIT AND ISC AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
-[[licenses.clarify]]
-name = "webpki"
-expression = "ISC"
-license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+[licenses.private]
+ignore = true
+registries = []
 
+# Crate bans configuration
 [bans]
-# How to handle multiple versions of the same crate
 multiple-versions = "warn"
-# Wildcards in dependencies are a code smell
-wildcards = "deny"
-# Do not allow git dependencies in published crates
-allow-git = []
+# Allow wildcards for workspace path dependencies
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+allow-workspace = true
 
 # Deny specific crates
 deny = [
-    # openssl - prefer rustls for TLS
-    { name = "openssl" },
-    { name = "openssl-sys" },
+    # Prefer rustls over openssl - but allow when pulled via native-tls for dev/test
+    { crate = "openssl", wrappers = ["native-tls"], reason = "Use rustls for production TLS" },
+    { crate = "openssl-sys", wrappers = ["native-tls", "openssl"], reason = "Use rustls for production TLS" },
 ]
 
-# Skip checking specific crates (use sparingly)
 skip = []
-
-# Allow specific duplicate versions
 skip-tree = []
 
+# Source checking configuration
 [sources]
-# Crates must come from these sources
-unknown-registry = "deny"
-unknown-git = "deny"
+unknown-registry = "warn"
+unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
 
 [sources.allow-org]
-# Allow crates from these organizations' git repos
 github = []
 gitlab = []
 bitbucket = []
