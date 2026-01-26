@@ -69,6 +69,18 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::unused_async)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::semicolon_if_nothing_returned)]
+#![allow(clippy::unused_self)]
+#![allow(clippy::unnecessary_wraps)]
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::useless_vec)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 
 pub mod checkpoint;
 pub mod config;

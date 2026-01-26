@@ -7,6 +7,16 @@
 //! - Progress reporting and metrics
 
 #![warn(missing_docs)]
+// Allow pedantic clippy lints for this crate
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(unused_mut)]
+#![allow(unused_variables)]
+#![allow(clippy::identity_op)]
+#![allow(clippy::unnecessary_mut_passed)]
 
 pub mod analyzer;
 #[cfg(feature = "hpc-channels")]

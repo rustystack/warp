@@ -1,3 +1,8 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(dead_code)]
+
 //! # warp-store-api: HTTP API Server for warp-store
 //!
 //! Provides both S3-compatible REST endpoints and native HPC endpoints.

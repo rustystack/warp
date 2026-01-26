@@ -7,6 +7,8 @@
 //! - Encryption and decryption
 //! - Edge cases (large files, many files, unicode, empty directories)
 
+#![allow(clippy::collapsible_if)]
+
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;

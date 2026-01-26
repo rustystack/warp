@@ -258,12 +258,12 @@ impl Session {
             let entry = entry?;
             let path = entry.path();
 
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("session") {
-                if let Ok(data) = fs::read(&path) {
-                    if let Ok(session) = rmp_serde::from_slice::<Session>(&data) {
-                        sessions.push(session);
-                    }
-                }
+            if path.is_file()
+                && path.extension().and_then(|s| s.to_str()) == Some("session")
+                && let Ok(data) = fs::read(&path)
+                && let Ok(session) = rmp_serde::from_slice::<Session>(&data)
+            {
+                sessions.push(session);
             }
         }
 

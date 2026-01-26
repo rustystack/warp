@@ -78,13 +78,13 @@ pub struct EncryptedChunk {
 impl EncryptedChunk {
     /// Get the total size of the encrypted chunk (ciphertext + tag)
     #[must_use]
-    pub fn encrypted_size(&self) -> u64 {
+    pub const fn encrypted_size(&self) -> u64 {
         self.data.len() as u64
     }
 
     /// Get the encryption overhead (encrypted size - plaintext size)
     #[must_use]
-    pub fn overhead(&self) -> u64 {
+    pub const fn overhead(&self) -> u64 {
         self.encrypted_size().saturating_sub(self.plaintext_size)
     }
 }

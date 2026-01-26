@@ -193,8 +193,7 @@ fn is_monotonic_boundary(window: &VecDeque<u8>, config: &SeqCdcConfig) -> bool {
     match config.mode {
         SeqMode::Increasing => {
             let mut prev = window[start];
-            for i in (start + 1)..window.len() {
-                let curr = window[i];
+            for &curr in window.iter().skip(start + 1) {
                 if prev >= curr {
                     return false;
                 }
@@ -204,8 +203,7 @@ fn is_monotonic_boundary(window: &VecDeque<u8>, config: &SeqCdcConfig) -> bool {
         }
         SeqMode::Decreasing => {
             let mut prev = window[start];
-            for i in (start + 1)..window.len() {
-                let curr = window[i];
+            for &curr in window.iter().skip(start + 1) {
                 if prev <= curr {
                     return false;
                 }

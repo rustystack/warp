@@ -86,19 +86,20 @@ pub async fn analyze_payload(path: &Path) -> Result<PayloadAnalysis> {
             continue;
         }
 
-        if let Some(ext) = entry.path.extension() {
-            if let Some(ext_str) = ext.to_str() {
-                *file_types.entry(ext_str.to_lowercase()).or_insert(0) += 1;
-            }
+        if let Some(ext) = entry.path.extension()
+            && let Some(ext_str) = ext.to_str()
+        {
+            *file_types.entry(ext_str.to_lowercase()).or_insert(0) += 1;
         }
 
-        if entry.size > 0 && entropy_samples.len() < MAX_FILES_TO_SAMPLE {
-            if let Ok(entropy) = sample_entropy(&entry.path, ENTROPY_SAMPLE_SIZE) {
-                entropy_samples.push(entropy);
+        if entry.size > 0
+            && entropy_samples.len() < MAX_FILES_TO_SAMPLE
+            && let Ok(entropy) = sample_entropy(&entry.path, ENTROPY_SAMPLE_SIZE)
+        {
+            entropy_samples.push(entropy);
 
-                if entropy > 0.9 {
-                    already_compressed_count += 1;
-                }
+            if entropy > 0.9 {
+                already_compressed_count += 1;
             }
         }
     }

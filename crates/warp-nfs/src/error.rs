@@ -187,5 +187,11 @@ impl std::fmt::Display for NfsStatus {
     }
 }
 
+impl From<crate::rpc::RpcError> for NfsError {
+    fn from(err: crate::rpc::RpcError) -> Self {
+        NfsError::Rpc(err.to_string())
+    }
+}
+
 /// Result type for NFS operations
 pub type NfsResult<T> = Result<T, NfsError>;

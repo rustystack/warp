@@ -126,7 +126,7 @@ impl ChunkIndex {
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() % ChunkEntry::SIZE != 0 {
+        if !bytes.len().is_multiple_of(ChunkEntry::SIZE) {
             return Err(Error::Corrupted(format!(
                 "Invalid chunk index size: {} (not a multiple of {})",
                 bytes.len(),

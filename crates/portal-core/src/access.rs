@@ -93,17 +93,17 @@ impl AccessConditions {
         password: Option<&str>,
     ) -> bool {
         // Check expiration
-        if let Some(expires_at) = self.expires_at {
-            if now >= expires_at {
-                return false;
-            }
+        if let Some(expires_at) = self.expires_at
+            && now >= expires_at
+        {
+            return false;
         }
 
         // Check usage limit
-        if let Some(max_uses) = self.max_uses {
-            if self.current_uses >= max_uses {
-                return false;
-            }
+        if let Some(max_uses) = self.max_uses
+            && self.current_uses >= max_uses
+        {
+            return false;
         }
 
         // Check network restriction (simplified - real impl would parse CIDR)

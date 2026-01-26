@@ -6,6 +6,9 @@
 //! - Transport tier selection
 //! - Parcode field access (when feature enabled)
 
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::unit_arg)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::time::Duration;
 use tempfile::TempDir;

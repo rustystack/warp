@@ -1,3 +1,10 @@
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::used_underscore_binding)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_lossless)]
+
 //! Telemetry, Logging, and Metrics for Portal Distributed Storage
 //!
 //! This crate provides:

@@ -468,9 +468,8 @@ mod tests {
             );
         }
 
-        let suggestions = engine.get_prefetch_suggestions("session1", 3);
-        // Should suggest next batches
-        assert!(!suggestions.is_empty() || true); // May be empty depending on pattern
+        let _suggestions = engine.get_prefetch_suggestions("session1", 3);
+        // May be empty depending on pattern - just verify the call doesn't panic
     }
 
     #[test]

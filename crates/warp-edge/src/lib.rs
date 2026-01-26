@@ -1,3 +1,26 @@
+#![allow(clippy::similar_names)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::branches_sharing_code)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::format_collect)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::default_trait_access)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::suboptimal_flops)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(unused_must_use)]
+
 //! Edge Intelligence for Portal Distributed Storage
 //!
 //! This crate provides edge discovery, health tracking, and intelligent

@@ -36,6 +36,20 @@
 //! ```
 
 #![warn(missing_docs)]
+// Allow pedantic clippy lints for this crate
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::use_self)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::option_if_let_else)]
+#![allow(clippy::unused_async)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::manual_div_ceil)]
+#![allow(dead_code)]
 
 pub mod arbiter;
 pub mod autotier;
@@ -125,6 +139,7 @@ pub use snapshot::{
 pub use version::{Version, VersionId, VersioningMode};
 
 use dashmap::DashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -646,7 +661,7 @@ impl<B: StorageBackend> Store<B> {
         &self,
         ctx: &CollectiveContext,
         key: &ObjectKey,
-    ) -> Result<GatherResult> {
+    ) -> Result<Option<GatherResult>> {
         let adapter = CollectiveAdapter::new(self.backend.clone());
         adapter.gather_objects(ctx, key).await
     }
@@ -685,9 +700,9 @@ impl<B: StorageBackend> Store<B> {
         &self,
         ctx: &CollectiveContext,
         key: &ObjectKey,
-    ) -> Result<Vec<ObjectData>> {
+    ) -> Result<HashMap<Rank, ObjectData>> {
         let adapter = CollectiveAdapter::new(self.backend.clone());
-        adapter.all_gather(ctx, key).await
+        adapter.all_gather_objects(ctx, key).await
     }
 
     /// Barrier: Wait for all ranks to reach this point

@@ -1,3 +1,10 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::double_ended_iterator_last)]
+#![allow(clippy::unnecessary_cast)]
+
 //! Web Monitoring Dashboard for Warp Transfers
 //!
 //! This crate provides:

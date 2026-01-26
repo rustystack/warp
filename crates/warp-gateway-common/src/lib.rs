@@ -1,3 +1,6 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::field_reassign_with_default)]
+
 //! Common abstractions for WARP protocol gateways
 //!
 //! This crate provides shared functionality for NFS, SMB, and Block device gateways:

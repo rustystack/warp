@@ -9,6 +9,13 @@
 //!
 //! Run with: cargo test -p warp-sched --test stress -- --nocapture
 
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::suboptimal_flops)]
+#![allow(clippy::cast_precision_loss)]
+
 use std::time::{Duration, Instant};
 use warp_sched::{
     ChunkId, ChunkState, CostConfig, CpuChunkScheduler, CpuCostMatrix, CpuStateBuffers, EdgeIdx,

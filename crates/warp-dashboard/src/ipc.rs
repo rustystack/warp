@@ -6,7 +6,7 @@
 use crate::handlers::AppState;
 use crate::types::{DashboardState, EdgeView, TransferView};
 use warp_ipc::{
-    commands::{IpcCommand, IpcResponse, responses::*},
+    commands::{EventFilter, IpcCommand, IpcResponse, responses::*},
     events::IpcEvent,
     types::*,
 };
@@ -334,13 +334,13 @@ impl IpcHandler {
                     .active_transfers
                     .iter()
                     .filter(|t| matches!(t.status, crate::types::TransferStatus::Queued))
-                    .count() as u64;
+                    .count();
                 let running = state
                     .active_transfers
                     .iter()
                     .filter(|t| matches!(t.status, crate::types::TransferStatus::Active))
-                    .count() as u64;
-                let completed = state.metrics.completed_transfers as u64;
+                    .count();
+                let completed = state.metrics.completed_transfers as usize;
                 let total = queued + running + completed;
                 let load = if total > 0 {
                     running as f64 / total as f64
@@ -368,13 +368,13 @@ impl IpcHandler {
                     .active_transfers
                     .iter()
                     .filter(|t| matches!(t.status, crate::types::TransferStatus::Queued))
-                    .count() as u64;
+                    .count();
                 let running = state
                     .active_transfers
                     .iter()
                     .filter(|t| matches!(t.status, crate::types::TransferStatus::Active))
-                    .count() as u64;
-                let completed = state.metrics.completed_transfers as u64;
+                    .count();
+                let completed = state.metrics.completed_transfers as usize;
                 let total = queued + running + completed;
                 let load = if total > 0 {
                     running as f64 / total as f64

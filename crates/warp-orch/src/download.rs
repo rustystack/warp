@@ -552,6 +552,7 @@ fn generate_transfer_id() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TransferDirection;
     use crate::pool::PoolConfig;
 
     #[test]

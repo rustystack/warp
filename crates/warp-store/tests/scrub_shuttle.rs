@@ -3,6 +3,9 @@
 //! These tests use shuttle to randomly explore interleavings of
 //! concurrent operations on the scrub scheduler state machine.
 
+#![allow(unused_imports)]
+#![allow(clippy::manual_range_contains)]
+
 use shuttle::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use shuttle::sync::{Mutex, RwLock};
 use shuttle::thread;

@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_retry() {
-        let queue = RepairQueue::new();
+        let _queue = RepairQueue::new();
 
         let mut job = RepairJob::new(ShardKey::new("bucket", "key", 0), RepairPriority::Critical);
 

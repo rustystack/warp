@@ -425,6 +425,7 @@ impl Default for TensorQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::ModelMetadata;
     use warp_store::StoreConfig;
 
     async fn create_test_store() -> TensorStore {

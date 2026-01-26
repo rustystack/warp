@@ -6,6 +6,12 @@
 //!
 //! Run with: cargo test -p warp-orch --test stress -- --nocapture
 
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::unnecessary_cast)]
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use warp_orch::{

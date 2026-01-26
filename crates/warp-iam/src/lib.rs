@@ -1,3 +1,6 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::field_reassign_with_default)]
+
 //! Identity and Access Management for WARP Storage
 //!
 //! This crate provides enterprise-grade IAM capabilities:

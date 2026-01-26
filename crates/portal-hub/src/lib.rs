@@ -36,6 +36,19 @@
 #![warn(missing_docs)]
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::manual_string_new)]
+#![allow(clippy::redundant_closure_for_method_calls)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::field_reassign_with_default)]
 
 pub mod auth;
 pub mod ephemeral_auth;

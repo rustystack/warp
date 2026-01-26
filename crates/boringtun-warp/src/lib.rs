@@ -1,3 +1,12 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::borrow_deref_ref)]
+#![allow(clippy::explicit_auto_deref)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::redundant_guards)]
+
 //! boringtun-warp: WireGuard implementation for WARP
 //!
 //! This is a fork of Cloudflare's boringtun with updated stable dependencies

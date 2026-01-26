@@ -422,46 +422,44 @@ impl PathExistsRule {
                     ));
                 }
             }
-        } else {
-            if let Some(parent) = config.data_dir.parent() {
-                if parent.exists() {
-                    match std::fs::metadata(parent) {
-                        Ok(metadata) => {
-                            if metadata.permissions().readonly() {
-                                result.add_error(ValidationError::new(
-                                    "storage.data_dir",
-                                    format!(
-                                        "Cannot create data directory, parent is readonly: {}",
-                                        parent.display()
-                                    ),
-                                    ErrorCode::PermissionDenied,
-                                ));
-                            } else {
-                                result.add_warning(ValidationWarning::with_suggestion(
-                                    "storage.data_dir",
-                                    format!(
-                                        "Data directory does not exist: {}",
-                                        config.data_dir.display()
-                                    ),
-                                    "Directory will be created on first use",
-                                ));
-                            }
-                        }
-                        Err(_) => {
+        } else if let Some(parent) = config.data_dir.parent() {
+            if parent.exists() {
+                match std::fs::metadata(parent) {
+                    Ok(metadata) => {
+                        if metadata.permissions().readonly() {
                             result.add_error(ValidationError::new(
                                 "storage.data_dir",
-                                format!("Cannot access parent directory: {}", parent.display()),
+                                format!(
+                                    "Cannot create data directory, parent is readonly: {}",
+                                    parent.display()
+                                ),
                                 ErrorCode::PermissionDenied,
+                            ));
+                        } else {
+                            result.add_warning(ValidationWarning::with_suggestion(
+                                "storage.data_dir",
+                                format!(
+                                    "Data directory does not exist: {}",
+                                    config.data_dir.display()
+                                ),
+                                "Directory will be created on first use",
                             ));
                         }
                     }
-                } else {
-                    result.add_error(ValidationError::new(
-                        "storage.data_dir",
-                        format!("Data directory parent does not exist: {}", parent.display()),
-                        ErrorCode::PathNotFound,
-                    ));
+                    Err(_) => {
+                        result.add_error(ValidationError::new(
+                            "storage.data_dir",
+                            format!("Cannot access parent directory: {}", parent.display()),
+                            ErrorCode::PermissionDenied,
+                        ));
+                    }
                 }
+            } else {
+                result.add_error(ValidationError::new(
+                    "storage.data_dir",
+                    format!("Data directory parent does not exist: {}", parent.display()),
+                    ErrorCode::PathNotFound,
+                ));
             }
         }
 

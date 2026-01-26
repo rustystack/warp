@@ -408,7 +408,6 @@ impl Default for Nfs4StateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
 
     #[test]
     fn test_share_access() {

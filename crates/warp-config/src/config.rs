@@ -477,12 +477,11 @@ impl ConfigLoader {
 
     /// Expand path with tilde
     fn expand_path(path: &Path) -> PathBuf {
-        if let Some(path_str) = path.to_str() {
-            if path_str.starts_with("~/") {
-                if let Some(home) = dirs::home_dir() {
-                    return home.join(&path_str[2..]);
-                }
-            }
+        if let Some(path_str) = path.to_str()
+            && let Some(rest) = path_str.strip_prefix("~/")
+            && let Some(home) = dirs::home_dir()
+        {
+            return home.join(rest);
         }
         path.to_path_buf()
     }

@@ -631,6 +631,7 @@ fn find_consecutive_ones_16(mask: u16, n: usize) -> Option<usize> {
 // ============================================================================
 
 /// Find position of first consecutive run of `n` ones in a 32-bit mask
+#[allow(dead_code)]
 #[inline]
 fn find_consecutive_ones(mask: u32, n: usize) -> Option<usize> {
     if n == 0 {
@@ -656,6 +657,7 @@ fn find_consecutive_ones(mask: u32, n: usize) -> Option<usize> {
 }
 
 /// Find position of first consecutive run of `n` ones in a 64-bit mask
+#[allow(dead_code)]
 #[inline]
 fn find_consecutive_ones_64(mask: u64, n: usize) -> Option<usize> {
     if n == 0 {

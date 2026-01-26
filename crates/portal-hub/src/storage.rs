@@ -607,7 +607,7 @@ mod tests {
         let content_id = create_test_content_id(1);
         let data = vec![1, 2, 3, 4, 5];
 
-        storage.store_chunk(content_id, data.clone());
+        storage.store_chunk(content_id, &data);
 
         let retrieved = storage.get_chunk(&content_id).expect("Failed to get chunk");
         assert_eq!(retrieved, data);
@@ -629,7 +629,7 @@ mod tests {
 
         assert!(!storage.has_chunk(&content_id));
 
-        storage.store_chunk(content_id, vec![1, 2, 3]);
+        storage.store_chunk(content_id, &[1, 2, 3]);
         assert!(storage.has_chunk(&content_id));
     }
 
@@ -640,8 +640,8 @@ mod tests {
         let cid2 = create_test_content_id(2);
         let cid3 = create_test_content_id(3);
 
-        storage.store_chunk(cid1, vec![1]);
-        storage.store_chunk(cid3, vec![3]);
+        storage.store_chunk(cid1, &[1]);
+        storage.store_chunk(cid3, &[3]);
 
         let existing = storage.check_chunks(&[cid1, cid2, cid3]);
         assert_eq!(existing.len(), 2);
@@ -656,7 +656,7 @@ mod tests {
         let content_id = create_test_content_id(1);
         let data = vec![1, 2, 3, 4, 5];
 
-        storage.store_chunk(content_id, data.clone());
+        storage.store_chunk(content_id, &data);
         let deleted = storage
             .delete_chunk(&content_id)
             .expect("Failed to delete chunk");
@@ -671,14 +671,14 @@ mod tests {
         let storage = HubStorage::new();
         assert_eq!(storage.chunk_count(), 0);
 
-        storage.store_chunk(create_test_content_id(1), vec![1]);
+        storage.store_chunk(create_test_content_id(1), &[1]);
         assert_eq!(storage.chunk_count(), 1);
 
-        storage.store_chunk(create_test_content_id(2), vec![2]);
+        storage.store_chunk(create_test_content_id(2), &[2]);
         assert_eq!(storage.chunk_count(), 2);
 
         // Overwriting doesn't increase count
-        storage.store_chunk(create_test_content_id(1), vec![1, 1]);
+        storage.store_chunk(create_test_content_id(1), &[1, 1]);
         assert_eq!(storage.chunk_count(), 2);
     }
 
@@ -749,8 +749,8 @@ mod tests {
             .unwrap();
 
         // Add chunks
-        storage.store_chunk(create_test_content_id(1), vec![1, 2, 3]); // 3 bytes
-        storage.store_chunk(create_test_content_id(2), vec![4, 5, 6, 7]); // 4 bytes
+        storage.store_chunk(create_test_content_id(1), &[1, 2, 3]); // 3 bytes
+        storage.store_chunk(create_test_content_id(2), &[4, 5, 6, 7]); // 4 bytes
 
         // Add manifest
         storage.store_manifest(portal.id, &[8, 9, 10, 11, 12]); // 5 bytes
@@ -782,7 +782,8 @@ mod tests {
             let storage_clone = Arc::clone(&storage);
             let handle = thread::spawn(move || {
                 let content_id = create_test_content_id(i);
-                storage_clone.store_chunk(content_id, vec![i; 10]);
+                let data = vec![i; 10];
+                storage_clone.store_chunk(content_id, &data);
             });
             handles.push(handle);
         }

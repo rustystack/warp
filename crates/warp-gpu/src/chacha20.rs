@@ -45,6 +45,7 @@ use std::sync::Arc;
 use tracing::{debug, trace};
 
 /// ChaCha20 constants
+#[allow(dead_code)]
 mod constants {
     pub const BLOCK_SIZE: usize = 64;
     pub const KEY_SIZE: usize = 32;

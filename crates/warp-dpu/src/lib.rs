@@ -65,6 +65,12 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::similar_names)]
 
 pub mod backend;
 pub mod backends;

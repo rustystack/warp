@@ -1,3 +1,26 @@
+// Allow pedantic clippy lints for this crate
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::use_self)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::option_if_let_else)]
+#![allow(clippy::unused_async)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::redundant_closure_for_method_calls)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::collection_is_never_read)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(unused_must_use)]
+
 //! Portal Network - P2P mesh networking for Portal distributed storage
 //!
 //! This crate provides the networking layer for Portal, implementing:

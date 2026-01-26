@@ -1,5 +1,8 @@
 //! Benchmarks for pinned memory pool allocation and transfer performance
 
+#![allow(unused_imports)]
+#![allow(deprecated)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use warp_gpu::{GpuContext, PinnedMemoryPool, PoolConfig};
 

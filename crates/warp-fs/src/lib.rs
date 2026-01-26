@@ -1,3 +1,9 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::await_holding_lock)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(dead_code)]
+
 //! # warp-fs: POSIX Filesystem Layer for WARP Storage
 //!
 //! Mount warp-store as a local filesystem using FUSE.

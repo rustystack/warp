@@ -191,15 +191,15 @@ impl StreamManager {
     pub fn acquire_stream(&self) -> Result<StreamGuard<'_>> {
         // Try to find an idle stream (non-blocking)
         for (idx, stream_mutex) in self.streams.iter().enumerate() {
-            if let Ok(mut stream) = stream_mutex.try_lock() {
-                if !stream.is_busy {
-                    stream.is_busy = true;
-                    trace!("Acquired stream {}", idx);
-                    return Ok(StreamGuard {
-                        manager: self,
-                        stream_id: idx,
-                    });
-                }
+            if let Ok(mut stream) = stream_mutex.try_lock()
+                && !stream.is_busy
+            {
+                stream.is_busy = true;
+                trace!("Acquired stream {}", idx);
+                return Ok(StreamGuard {
+                    manager: self,
+                    stream_id: idx,
+                });
             }
         }
 
@@ -209,15 +209,15 @@ impl StreamManager {
 
         loop {
             for (idx, stream_mutex) in self.streams.iter().enumerate() {
-                if let Ok(mut stream) = stream_mutex.lock() {
-                    if !stream.is_busy {
-                        stream.is_busy = true;
-                        trace!("Acquired stream {} after waiting", idx);
-                        return Ok(StreamGuard {
-                            manager: self,
-                            stream_id: idx,
-                        });
-                    }
+                if let Ok(mut stream) = stream_mutex.lock()
+                    && !stream.is_busy
+                {
+                    stream.is_busy = true;
+                    trace!("Acquired stream {} after waiting", idx);
+                    return Ok(StreamGuard {
+                        manager: self,
+                        stream_id: idx,
+                    });
                 }
             }
 
@@ -264,11 +264,11 @@ impl StreamManager {
 
     /// Release a stream (called by StreamGuard on drop)
     fn release_stream(&self, stream_id: usize) {
-        if let Some(stream_mutex) = self.streams.get(stream_id) {
-            if let Ok(mut stream) = stream_mutex.lock() {
-                stream.is_busy = false;
-                trace!("Released stream {}", stream_id);
-            }
+        if let Some(stream_mutex) = self.streams.get(stream_id)
+            && let Ok(mut stream) = stream_mutex.lock()
+        {
+            stream.is_busy = false;
+            trace!("Released stream {}", stream_id);
         }
     }
 }

@@ -32,6 +32,8 @@
 //! ```
 
 #![warn(missing_docs)]
+#![allow(clippy::explicit_counter_loop)]
+#![allow(clippy::collapsible_if)]
 
 mod envelope;
 mod error;

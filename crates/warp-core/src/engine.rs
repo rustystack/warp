@@ -373,7 +373,7 @@ impl TransferEngine {
                 VerificationMode::Sampling { percent } => {
                     // Simple deterministic sampling based on chunk index
                     (idx * 100 / temp_header.total_chunks.max(1) as usize) < percent as usize
-                        || idx % (100 / percent.max(1) as usize) == 0
+                        || idx.is_multiple_of(100 / percent.max(1) as usize)
                 }
             }
         };
@@ -420,35 +420,35 @@ impl TransferEngine {
             }
 
             // Send per-chunk verification if enabled
-            if should_verify_chunk(chunk_idx) {
-                if let Some(ref tree) = merkle_tree {
-                    let proof = tree.generate_proof(chunk_idx);
+            if should_verify_chunk(chunk_idx)
+                && let Some(ref tree) = merkle_tree
+            {
+                let proof = tree.generate_proof(chunk_idx);
 
-                    // Pack direction bits into bytes
-                    let directions_packed: Vec<u8> = proof
-                        .directions
-                        .chunks(8)
-                        .map(|bits: &[bool]| {
-                            bits.iter()
-                                .enumerate()
-                                .fold(0u8, |acc, (i, &b)| acc | ((b as u8) << i))
-                        })
-                        .collect();
-
-                    // Convert to wire format
-                    let wire_proof = WireMerkleProof {
-                        siblings: proof.siblings,
-                        leaf_index: proof.leaf_index as u32,
-                        directions: directions_packed,
-                    };
-
-                    conn.send_frame(Frame::ChunkVerify {
-                        chunk_id: chunk_idx as u32,
-                        chunk_hash,
-                        proof: wire_proof,
+                // Pack direction bits into bytes
+                let directions_packed: Vec<u8> = proof
+                    .directions
+                    .chunks(8)
+                    .map(|bits: &[bool]| {
+                        bits.iter()
+                            .enumerate()
+                            .fold(0u8, |acc, (i, &b)| acc | ((b as u8) << i))
                     })
-                    .await?;
-                }
+                    .collect();
+
+                // Convert to wire format
+                let wire_proof = WireMerkleProof {
+                    siblings: proof.siblings,
+                    leaf_index: proof.leaf_index as u32,
+                    directions: directions_packed,
+                };
+
+                conn.send_frame(Frame::ChunkVerify {
+                    chunk_id: chunk_idx as u32,
+                    chunk_hash,
+                    proof: wire_proof,
+                })
+                .await?;
             }
 
             session.complete_chunk(chunk_idx as u64);
@@ -636,6 +636,7 @@ impl TransferEngine {
             .erasure_config
             .as_ref()
             .map(|ec| ErasureDecoder::new(ec.clone()));
+        #[allow(clippy::type_complexity)]
         let mut shard_buffers: HashMap<u32, (u16, Vec<Option<Vec<u8>>>)> = HashMap::new();
         // Track recovered chunk data for writing
         let mut recovered_chunks: HashMap<u32, Vec<u8>> = HashMap::new();

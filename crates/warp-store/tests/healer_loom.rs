@@ -3,6 +3,8 @@
 //! These tests use loom to exhaustively check all possible interleavings
 //! of concurrent operations on the repair queue.
 
+#![allow(dead_code)]
+
 use loom::sync::Arc;
 use loom::sync::atomic::{AtomicU64, Ordering};
 use loom::thread;

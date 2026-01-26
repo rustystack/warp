@@ -45,7 +45,7 @@ impl MerkleTree {
         // Walk up the tree, collecting sibling hashes
         while level_size > 1 {
             // Find the sibling index
-            let sibling_index = if index % 2 == 0 {
+            let sibling_index = if index.is_multiple_of(2) {
                 // Left child, sibling is right
                 index + 1
             } else {
@@ -86,7 +86,7 @@ impl MerkleTree {
 
         // Walk up the tree, combining with siblings
         for sibling in proof {
-            current_hash = if current_index % 2 == 0 {
+            current_hash = if current_index.is_multiple_of(2) {
                 // Current is left, sibling is right
                 hash_pair(&current_hash, sibling)
             } else {

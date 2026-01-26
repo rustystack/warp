@@ -266,7 +266,7 @@ impl SpillManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tensor::TensorDtype;
+    use crate::tensor::{TensorDtype, TensorMeta};
 
     fn create_test_handle() -> TensorHandle {
         let meta = TensorMeta::new(vec![1024, 1024], TensorDtype::Float32);

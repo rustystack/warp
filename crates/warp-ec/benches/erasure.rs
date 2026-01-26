@@ -2,6 +2,8 @@
 //!
 //! Run with: cargo bench -p warp-ec
 
+#![allow(clippy::needless_range_loop)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use rand::Rng;
 use warp_ec::{ErasureConfig, ErasureDecoder, ErasureEncoder};

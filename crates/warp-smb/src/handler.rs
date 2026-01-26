@@ -2,7 +2,6 @@
 //!
 //! Implements SMB2/3 command processing and dispatch.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
@@ -18,11 +17,8 @@ use warp_store::{ObjectKey, Store};
 use crate::config::SmbConfig;
 use crate::error::{NtStatus, SmbError, SmbResult};
 use crate::oplocks::OplockManager;
-use crate::protocol::{
-    CreateDisposition, DesiredAccess, FileAttributes, FileId, SMB2_HEADER_SIZE, SMB2_PROTOCOL_ID,
-    ShareAccess, Smb2Flags, Smb2Header, SmbCommand,
-};
-use crate::server::{SessionFlags, SmbSession, TreeConnect};
+use crate::protocol::{FileAttributes, FileId, SMB2_HEADER_SIZE, Smb2Header, SmbCommand};
+use crate::server::{SmbSession, TreeConnect};
 use crate::share::ShareManager;
 
 /// SMB dialect versions
@@ -615,10 +611,12 @@ impl SmbConnectionHandler {
 
         // Read from store using ObjectKey
         let data = if let Some((bucket, key)) = self.parse_path(&file_info.path) {
-            let object_key = ObjectKey::new(&bucket, &key);
+            let Ok(object_key) = ObjectKey::new(&bucket, &key) else {
+                return Ok(vec![]);
+            };
             match self.store.get(&object_key).await {
                 Ok(object_data) => {
-                    let full_data = object_data.data.to_vec();
+                    let full_data: &[u8] = object_data.as_ref();
                     let start = offset as usize;
                     let end = (start + length as usize).min(full_data.len());
                     if start < full_data.len() {
@@ -692,14 +690,13 @@ impl SmbConnectionHandler {
 
         // Write to store using ObjectKey
         let bytes_written = if let Some((bucket, key)) = self.parse_path(&file_info.path) {
-            let object_key = ObjectKey::new(&bucket, &key);
+            let Ok(object_key) = ObjectKey::new(&bucket, &key) else {
+                return Ok(vec![]);
+            };
             // For simplicity, we're doing a full overwrite. A proper implementation
             // would support partial writes with read-modify-write semantics
-            let object_data = warp_store::ObjectData {
-                data: bytes::Bytes::copy_from_slice(write_data),
-                content_type: Some("application/octet-stream".to_string()),
-                metadata: Default::default(),
-            };
+            let object_data =
+                warp_store::ObjectData::new(bytes::Bytes::copy_from_slice(write_data));
             match self.store.put(&object_key, object_data).await {
                 Ok(_) => write_data.len(),
                 Err(_) => 0,

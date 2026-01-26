@@ -687,8 +687,8 @@ mod tests {
         let cid2 = [2u8; 32];
         let cid3 = [3u8; 32];
 
-        storage.store_chunk(cid1, vec![1, 2, 3]);
-        storage.store_chunk(cid3, vec![7, 8, 9]);
+        storage.store_chunk(cid1, &[1, 2, 3]);
+        storage.store_chunk(cid3, &[7, 8, 9]);
 
         let req = ChunkCheckRequest {
             content_ids: vec![hex::encode(cid1), hex::encode(cid2), hex::encode(cid3)],

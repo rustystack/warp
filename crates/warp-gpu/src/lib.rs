@@ -67,6 +67,9 @@
 //! pool.release(buffer);
 //! ```
 
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::field_reassign_with_default)]
+
 pub mod backend;
 pub mod backends;
 pub mod error;

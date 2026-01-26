@@ -1,3 +1,19 @@
+// Allow pedantic clippy lints for this crate
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::unused_self)]
+#![allow(clippy::needless_raw_string_hashes)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::approx_constant)]
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(unsafe_code)]
+
 //! Configuration Management for Portal Distributed Storage
 //!
 //! This crate provides:

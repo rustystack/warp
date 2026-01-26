@@ -1,5 +1,7 @@
 //! Integration tests for warp
 
+#![allow(clippy::len_zero)]
+
 use std::io::Cursor;
 
 /// Test basic chunking roundtrip

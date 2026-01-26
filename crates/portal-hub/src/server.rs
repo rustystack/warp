@@ -518,7 +518,7 @@ mod tests {
         // Store some chunks
         let cid1 = [1u8; 32];
         let cid2 = [2u8; 32];
-        storage.store_chunk(cid1, vec![1, 2, 3]);
+        storage.store_chunk(cid1, &[1, 2, 3]);
 
         let token = AuthToken::new(edge_id, &signing_key);
         let auth_header = serialize_auth_token(&token).unwrap();

@@ -2,7 +2,7 @@
 //!
 //! Implements RFC 4506 XDR encoding for NFS protocol types.
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use std::io;
 
 /// XDR encoder

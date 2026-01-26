@@ -450,7 +450,7 @@ mod combined_tests {
             .unwrap();
 
         // Snapshot tracks bytes
-        assert!(snapshot.total_bytes == 0 || true); // Initial is 0
+        assert_eq!(snapshot.total_bytes, 0); // Initial is 0
 
         // Quota tracks usage
         quota_manager.record_put("tracked-bucket", Some("user1"), 1000);

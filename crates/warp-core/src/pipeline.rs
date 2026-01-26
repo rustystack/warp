@@ -42,7 +42,7 @@ impl TransferPipeline {
 
     /// Get next chunk to process
     pub fn next_chunk(&mut self) -> Option<u64> {
-        self.scheduler.next()
+        self.scheduler.next_chunk()
     }
 
     /// Check if pipeline is empty

@@ -6,6 +6,8 @@
 //!
 //! Run these tests explicitly with: cargo test --test transfer -- --ignored
 
+#![allow(clippy::manual_range_contains)]
+
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;

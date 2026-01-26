@@ -57,6 +57,9 @@
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
+#![allow(dead_code)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::manual_is_multiple_of)]
 
 pub mod compressor;
 pub mod detection;

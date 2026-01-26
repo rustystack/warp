@@ -3,6 +3,8 @@
 //! This module provides the low-level cryptographic operations used by
 //! the Noise protocol implementation.
 
+#![allow(clippy::explicit_auto_deref)]
+
 use aead::{Aead, KeyInit as AeadKeyInit, Payload};
 use blake2::digest::consts::U32;
 use blake2::digest::{FixedOutput, KeyInit, Mac, Update};

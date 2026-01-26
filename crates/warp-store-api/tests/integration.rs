@@ -2,6 +2,8 @@
 //!
 //! These tests spin up an actual HTTP server and test the full API flow.
 
+#![allow(unused_imports)]
+
 use std::net::SocketAddr;
 use std::time::Duration;
 

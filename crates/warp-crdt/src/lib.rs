@@ -51,6 +51,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![allow(clippy::match_like_matches_macro)]
 
 pub mod g_counter;
 pub mod hlc;

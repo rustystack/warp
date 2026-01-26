@@ -55,6 +55,10 @@
 //! ```
 
 #![warn(missing_docs)]
+#![allow(dead_code)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::unused_enumerate_index)]
+#![allow(clippy::field_reassign_with_default)]
 
 pub mod cache;
 pub mod config;

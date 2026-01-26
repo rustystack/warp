@@ -720,7 +720,7 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
 
         // Store chunk
-        storage.store_chunk(content_id, data.clone());
+        storage.store_chunk(content_id, &data);
         assert!(storage.has_chunk(&content_id));
 
         // Retrieve chunk
@@ -790,7 +790,7 @@ mod tests {
 
         // Store a chunk
         let content_id = [99u8; 32];
-        storage.store_chunk(content_id, vec![1, 2, 3]);
+        storage.store_chunk(content_id, &[1, 2, 3]);
 
         // Decrement reference to 0
         let should_delete = storage.dec_chunk_ref(&content_id).unwrap();
@@ -811,7 +811,7 @@ mod tests {
         // Store data and close
         {
             let storage = PersistentStorage::open(temp_dir.path()).unwrap();
-            storage.store_chunk(content_id, data.clone());
+            storage.store_chunk(content_id, &data);
             storage.flush().unwrap();
         }
 
@@ -829,13 +829,13 @@ mod tests {
         // Test memory mode
         let mem = HybridStorage::memory();
         let content_id = [1u8; 32];
-        mem.store_chunk(content_id, vec![1, 2, 3]);
+        mem.store_chunk(content_id, &[1, 2, 3]);
         assert!(mem.has_chunk(&content_id));
 
         // Test persistent mode
         let temp_dir = tempfile::tempdir().unwrap();
         let persistent = HybridStorage::persistent(temp_dir.path()).unwrap();
-        persistent.store_chunk(content_id, vec![4, 5, 6]);
+        persistent.store_chunk(content_id, &[4, 5, 6]);
         assert!(persistent.has_chunk(&content_id));
     }
 }

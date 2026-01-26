@@ -1,3 +1,5 @@
+#![allow(clippy::identity_op)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::io::Cursor;
 use std::io::Write;

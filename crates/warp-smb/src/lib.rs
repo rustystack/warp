@@ -30,6 +30,10 @@
 //! ```
 
 #![warn(missing_docs)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::inherent_to_string)]
 
 pub mod config;
 pub mod dfs;

@@ -2,6 +2,14 @@
 //!
 //! Run with: cargo bench -p warp-sched
 
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::semicolon_if_nothing_returned)]
+#![allow(clippy::suboptimal_flops)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(missing_docs)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use warp_sched::{
     ChunkId, ChunkState, CostConfig, CpuChunkScheduler, CpuCostMatrix, CpuPathSelector,

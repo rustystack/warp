@@ -53,6 +53,7 @@
 //! | RS(16,4) | 16 | 4 | 25% | 4 failures |
 
 #![warn(missing_docs)]
+#![allow(clippy::needless_range_loop)]
 
 mod config;
 mod decoder;

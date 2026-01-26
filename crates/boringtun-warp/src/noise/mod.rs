@@ -2,6 +2,9 @@
 //!
 //! This module implements the Noise_IKpsk2 protocol as specified by WireGuard.
 
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::unnecessary_map_or)]
+
 mod crypto;
 mod errors;
 mod handshake;

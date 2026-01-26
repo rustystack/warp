@@ -3,6 +3,8 @@
 //! These tests verify that the partition detector correctly handles
 //! concurrent node status updates and partition detection races.
 
+#![allow(dead_code)]
+
 use shuttle::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use shuttle::sync::{Mutex, RwLock};
 use shuttle::thread;

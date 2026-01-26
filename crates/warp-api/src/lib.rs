@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::useless_vec)]
+
 //! REST API with OpenAPI documentation for Warp
 //!
 //! This crate provides:

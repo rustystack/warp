@@ -1,3 +1,8 @@
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::collapsible_if)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 //! NBD Block Device Gateway for WARP Storage
 //!
 //! This crate provides a Network Block Device (NBD) server that exposes

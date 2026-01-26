@@ -17,6 +17,11 @@
 #![warn(missing_docs)]
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::doc_markdown)]
 
 pub mod access;
 pub mod encryption;

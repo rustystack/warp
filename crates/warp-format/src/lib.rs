@@ -7,6 +7,8 @@
 //! - Chunk-level deduplication
 
 #![warn(missing_docs)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::collapsible_if)]
 
 pub mod file_table;
 pub mod header;

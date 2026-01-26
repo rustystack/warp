@@ -46,6 +46,8 @@
 //! Runtime detection automatically selects the best available implementation.
 
 #![warn(missing_docs)]
+#![allow(clippy::unnecessary_to_owned)]
+#![allow(dead_code)]
 
 pub mod async_chunker;
 pub mod async_walker;

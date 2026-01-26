@@ -337,6 +337,7 @@ impl LazyTensor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test_tensor_id_uniqueness() {
@@ -356,10 +357,19 @@ mod tests {
 
     #[test]
     fn test_tensor_dtype_from_str() {
-        assert_eq!(TensorDtype::from_str("float32"), Some(TensorDtype::Float32));
-        assert_eq!(TensorDtype::from_str("f32"), Some(TensorDtype::Float32));
-        assert_eq!(TensorDtype::from_str("bf16"), Some(TensorDtype::BFloat16));
-        assert_eq!(TensorDtype::from_str("unknown"), None);
+        assert_eq!(
+            TensorDtype::from_str("float32").ok(),
+            Some(TensorDtype::Float32)
+        );
+        assert_eq!(
+            TensorDtype::from_str("f32").ok(),
+            Some(TensorDtype::Float32)
+        );
+        assert_eq!(
+            TensorDtype::from_str("bf16").ok(),
+            Some(TensorDtype::BFloat16)
+        );
+        assert_eq!(TensorDtype::from_str("unknown").ok(), None);
     }
 
     #[test]

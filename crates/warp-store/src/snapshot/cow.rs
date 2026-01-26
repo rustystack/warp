@@ -480,8 +480,8 @@ mod tests {
 
     fn test_checksum(seed: u8) -> [u8; 32] {
         let mut checksum = [0u8; 32];
-        for i in 0..32 {
-            checksum[i] = seed.wrapping_add(i as u8);
+        for (i, byte) in checksum.iter_mut().enumerate() {
+            *byte = seed.wrapping_add(i as u8);
         }
         checksum
     }

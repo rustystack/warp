@@ -277,7 +277,7 @@ impl TensorCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tensor::TensorDtype;
+    use crate::tensor::{TensorDtype, TensorMeta};
 
     fn create_test_handle(size: usize) -> Arc<TensorHandle> {
         let meta = TensorMeta::new(vec![size], TensorDtype::Float32);

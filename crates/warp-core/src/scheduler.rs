@@ -43,7 +43,7 @@ impl ChunkScheduler {
     }
 
     /// Get the next chunk to process
-    pub fn next(&mut self) -> Option<u64> {
+    pub fn next_chunk(&mut self) -> Option<u64> {
         self.queue.pop().map(|p| p.chunk_index)
     }
 
@@ -81,7 +81,7 @@ mod tests {
         scheduler.schedule(0, 100);
         assert!(!scheduler.is_empty());
 
-        let next = scheduler.next();
+        let next = scheduler.next_chunk();
         assert_eq!(next, Some(0));
         assert!(scheduler.is_empty());
     }
@@ -94,10 +94,10 @@ mod tests {
         scheduler.schedule(3, 30);
 
         // Higher priority should come first
-        assert_eq!(scheduler.next(), Some(2)); // score 50
-        assert_eq!(scheduler.next(), Some(3)); // score 30
-        assert_eq!(scheduler.next(), Some(1)); // score 10
-        assert_eq!(scheduler.next(), None);
+        assert_eq!(scheduler.next_chunk(), Some(2)); // score 50
+        assert_eq!(scheduler.next_chunk(), Some(3)); // score 30
+        assert_eq!(scheduler.next_chunk(), Some(1)); // score 10
+        assert_eq!(scheduler.next_chunk(), None);
     }
 
     #[test]
@@ -108,9 +108,9 @@ mod tests {
         scheduler.schedule(3, -20);
 
         // Higher (less negative) should come first
-        assert_eq!(scheduler.next(), Some(2)); // score -5
-        assert_eq!(scheduler.next(), Some(1)); // score -10
-        assert_eq!(scheduler.next(), Some(3)); // score -20
+        assert_eq!(scheduler.next_chunk(), Some(2)); // score -5
+        assert_eq!(scheduler.next_chunk(), Some(1)); // score -10
+        assert_eq!(scheduler.next_chunk(), Some(3)); // score -20
     }
 
     #[test]
@@ -120,9 +120,9 @@ mod tests {
         scheduler.schedule(2, -5);
         scheduler.schedule(3, 0);
 
-        assert_eq!(scheduler.next(), Some(1)); // score 10
-        assert_eq!(scheduler.next(), Some(3)); // score 0
-        assert_eq!(scheduler.next(), Some(2)); // score -5
+        assert_eq!(scheduler.next_chunk(), Some(1)); // score 10
+        assert_eq!(scheduler.next_chunk(), Some(3)); // score 0
+        assert_eq!(scheduler.next_chunk(), Some(2)); // score -5
     }
 
     #[test]
@@ -134,7 +134,7 @@ mod tests {
 
         // All should be processed (order may vary)
         let mut results = vec![];
-        while let Some(chunk) = scheduler.next() {
+        while let Some(chunk) = scheduler.next_chunk() {
             results.push(chunk);
         }
         results.sort();
@@ -150,7 +150,7 @@ mod tests {
 
         let mut count = 0;
         let mut prev_score = i32::MAX;
-        while let Some(_chunk) = scheduler.next() {
+        while let Some(_chunk) = scheduler.next_chunk() {
             count += 1;
         }
         assert_eq!(count, 1000);
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn test_empty_scheduler_next() {
         let mut scheduler = ChunkScheduler::new();
-        assert_eq!(scheduler.next(), None);
-        assert_eq!(scheduler.next(), None);
+        assert_eq!(scheduler.next_chunk(), None);
+        assert_eq!(scheduler.next_chunk(), None);
     }
 }

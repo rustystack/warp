@@ -250,16 +250,16 @@ impl PinnedMemoryPool {
             let size_class = self.config.size_classes[idx];
 
             // Try to reuse from pool
-            if let Ok(mut pool) = self.pools[idx].lock() {
-                if let Some(buffer) = pool.pop_front() {
-                    self.update_stats(|stats| {
-                        stats.allocations += 1;
-                        stats.cache_hits += 1;
-                    });
+            if let Ok(mut pool) = self.pools[idx].lock()
+                && let Some(buffer) = pool.pop_front()
+            {
+                self.update_stats(|stats| {
+                    stats.allocations += 1;
+                    stats.cache_hits += 1;
+                });
 
-                    trace!("Reused buffer from pool: {} bytes", size_class);
-                    return Ok(buffer);
-                }
+                trace!("Reused buffer from pool: {} bytes", size_class);
+                return Ok(buffer);
             }
 
             // Allocate new buffer
@@ -293,19 +293,18 @@ impl PinnedMemoryPool {
         // Reset buffer for reuse
         buffer.reset();
 
-        if let Some(idx) = self.find_exact_size_class(size) {
-            if let Ok(mut pool) = self.pools[idx].lock() {
-                if pool.len() < self.config.max_buffers_per_class {
-                    pool.push_back(buffer);
+        if let Some(idx) = self.find_exact_size_class(size)
+            && let Ok(mut pool) = self.pools[idx].lock()
+            && pool.len() < self.config.max_buffers_per_class
+        {
+            pool.push_back(buffer);
 
-                    self.update_stats(|stats| {
-                        stats.deallocations += 1;
-                    });
+            self.update_stats(|stats| {
+                stats.deallocations += 1;
+            });
 
-                    trace!("Returned buffer to pool: {} bytes", size);
-                    return;
-                }
-            }
+            trace!("Returned buffer to pool: {} bytes", size);
+            return;
         }
 
         // Pool full or size doesn't match, drop buffer
@@ -358,10 +357,10 @@ impl PinnedMemoryPool {
     where
         F: FnOnce(&mut PoolStatistics),
     {
-        if self.config.track_statistics {
-            if let Ok(mut stats) = self.statistics.lock() {
-                f(&mut stats);
-            }
+        if self.config.track_statistics
+            && let Ok(mut stats) = self.statistics.lock()
+        {
+            f(&mut stats);
         }
     }
 }

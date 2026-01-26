@@ -27,6 +27,9 @@ bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+# Random number generation
+rand = { workspace = true }
+
 # Network utilities
 ipnet = "2.10"
 

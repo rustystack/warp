@@ -51,6 +51,9 @@
 //! ```
 
 #![warn(missing_docs)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::collapsible_if)]
 
 mod chunk;
 mod config;

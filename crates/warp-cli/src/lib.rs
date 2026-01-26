@@ -3,6 +3,11 @@
 //! This library provides the core functionality for the warp CLI,
 //! including shell completion generation.
 
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::unnecessary_unwrap)]
+
 pub mod commands;
 pub mod completions;
 

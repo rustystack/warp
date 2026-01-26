@@ -16,7 +16,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 use tokio::sync::{RwLock, mpsc};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 #[cfg(feature = "wireguard-native")]
 use boringtun_warp::noise::{Tunn, TunnResult};

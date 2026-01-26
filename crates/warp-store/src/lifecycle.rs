@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn test_expiration_evaluation() {
-        let expiration = ExpirationAction {
+        let _expiration = ExpirationAction {
             days: Some(30),
             date: None,
             expired_object_delete_marker: false,

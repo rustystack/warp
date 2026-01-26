@@ -15,14 +15,15 @@ use crate::error::{Error, Result};
 use crate::model::presets::{ModelConfig, ModelPreset};
 
 /// Global ONNX Runtime environment initialization flag
-static ORT_INITIALIZED: Lazy<Result<()>> =
-    Lazy::new(|| match ort::init().with_name("warp-neural").commit() {
-        Ok(_) => Ok(()),
-        Err(e) => Err(Error::ModelLoad(format!(
-            "Failed to initialize ONNX Runtime: {}",
-            e
-        ))),
-    });
+static ORT_INITIALIZED: Lazy<Result<()>> = Lazy::new(|| {
+    if ort::init().with_name("warp-neural").commit() {
+        Ok(())
+    } else {
+        Err(Error::ModelLoad(
+            "Failed to initialize ONNX Runtime".to_string(),
+        ))
+    }
+});
 
 /// Thread-safe model session cache
 ///
@@ -108,8 +109,8 @@ impl SessionCache {
 
         info!(
             path = %model_path.display(),
-            inputs = session.inputs.len(),
-            outputs = session.outputs.len(),
+            inputs = session.inputs().len(),
+            outputs = session.outputs().len(),
             "Model loaded successfully"
         );
 

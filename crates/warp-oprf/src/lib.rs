@@ -59,6 +59,7 @@
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
+#![allow(dead_code)]
 
 pub mod error;
 pub mod suite;

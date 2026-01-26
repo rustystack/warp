@@ -6,6 +6,12 @@
 //! - Concurrent access patterns
 //! - Per-edge connection management
 
+#![allow(clippy::collection_is_never_read)]
+#![allow(clippy::semicolon_if_nothing_returned)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(missing_docs)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use tokio::runtime::Runtime;
 use warp_orch::pool::{ConnectionPool, PoolConfig};
