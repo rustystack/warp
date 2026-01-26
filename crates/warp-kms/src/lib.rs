@@ -39,8 +39,6 @@ mod envelope;
 mod error;
 mod key;
 mod local;
-
-#[cfg(feature = "aws")]
 mod aws;
 
 pub use envelope::{
@@ -51,9 +49,7 @@ pub use key::{
     DataKey, KeyAlgorithm, KeyMetadata, KeyOrigin, KeyState, KeyUsage, KeyVersion, MasterKey,
 };
 pub use local::LocalKms;
-
-#[cfg(feature = "aws")]
-pub use aws::AwsKms;
+pub use aws::{AwsKms, AwsKmsConfig};
 
 use async_trait::async_trait;
 

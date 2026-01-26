@@ -62,11 +62,18 @@ All 8 passes of the fullcleanreview completed successfully:
   - User/group search and authentication
   - Enable with: `cargo build -p warp-iam --features ldap`
 
+- [x] AWS KMS provider implemented (DONE)
+  - Full `KmsProvider` trait implementation with aws-sdk-kms v1.97
+  - Create/list/rotate/delete keys
+  - Envelope encryption with data key generation
+  - Re-encryption, tagging, and key management
+  - LocalStack support via custom endpoint
+  - Enable with: `cargo build -p warp-kms --features aws`
+
 ### Feature Stubs
 
 The following feature modules have placeholder implementations:
 - `warp-dpu/src/backends/bluefield.rs` - BlueField DPU (requires DOCA SDK)
-- `warp-kms/src/aws.rs` - AWS KMS (requires aws-sdk-kms crate)
 
 ## Review Plan Reference
 
