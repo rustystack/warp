@@ -21,10 +21,10 @@ rustflags = ["-C", "target-cpu=native"]
 
 # ===== Kellnr Registry Proxy =====
 [registries.kellnr]
-index = "sparse+https://crates.rustystack.io/api/v1/crates/"
+index = "sparse+https://crates.lan/api/v1/crates/"
 
 [source.crates-io]
 replace-with = "kellnr-proxy"
 
 [source.kellnr-proxy]
-registry = "sparse+https://crates.rustystack.io/api/v1/cratesio/"
+registry = "sparse+https://crates.lan/api/v1/cratesio/"
