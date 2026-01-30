@@ -28,7 +28,10 @@ replace-with = "kellnr-proxy"
 
 [source.kellnr-proxy]
 registry = "sparse+https://crates.lan/api/v1/cratesio/"
+<<<<<<< Updated upstream
 
 # SSL certificate for local registry (self-signed SmartPi CA)
 [http]
 cainfo = "/Users/omarsobh/.cargo/certs/smartpi-ca.pem"
+=======
+>>>>>>> Stashed changes
